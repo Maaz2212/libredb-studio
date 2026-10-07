@@ -23,6 +23,7 @@ import {
   LLMRateLimitError,
   LLMSafetyError,
   LLMStreamError,
+  isContextLengthError,
 } from "@/lib/llm/types";
 import { RateLimitError } from "@/lib/api/rate-limit";
 import { SeedConnectionError } from "@/lib/seed/resolve-connection";
@@ -220,6 +221,17 @@ export function createErrorResponse(error: unknown, context?: { route?: string }
   // --- LLM: Stream ---
   if (error instanceof LLMStreamError) {
     logger.error("LLM stream error", error, { route, provider: error.provider });
+    if (isContextLengthError(error)) {
+      return NextResponse.json(
+        {
+          error: "The schema is too large for the configured model's context.",
+          code: ApiErrorCode.LLM_STREAM,
+          statusCode: 502,
+          retryable: false,
+        },
+        { status: 502 },
+      );
+    }
     return NextResponse.json(
       { error: error.message, code: ApiErrorCode.LLM_STREAM, statusCode: 502, retryable: true },
       { status: 502 },
