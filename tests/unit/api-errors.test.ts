@@ -208,7 +208,7 @@ describe("createErrorResponse", () => {
     expect(res.status).toBe(502);
     const body = await res.json();
     expect(body.code).toBe("LLM_STREAM");
-    expect(body.error).toBe("The schema is too large for the configured model's context.");
+    expect(body.error).toBe("The request is too large for the configured model's context.");
     expect(body.retryable).toBe(false);
   });
 

@@ -224,7 +224,7 @@ export function createErrorResponse(error: unknown, context?: { route?: string }
     if (isContextLengthError(error)) {
       return NextResponse.json(
         {
-          error: "The schema is too large for the configured model's context.",
+          error: "The request is too large for the configured model's context.",
           code: ApiErrorCode.LLM_STREAM,
           statusCode: 502,
           retryable: false,
