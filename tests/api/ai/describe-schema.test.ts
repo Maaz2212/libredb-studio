@@ -320,6 +320,38 @@ describe("POST /api/ai/describe-schema", () => {
 
     const data = await parseResponseJSON<{ error: string }>(res);
     expect(data.error).toBe("The schema context is too large for AI documentation.");
+    expect(mockCreateLLMProvider).not.toHaveBeenCalled();
+  });
+
+  test("returns 400 when schemaContext is not a string without calling provider", async () => {
+    const req = createMockRequest("/api/ai/describe-schema", {
+      method: "POST",
+      body: { schemaContext: ["x".repeat(200_000)] },
+    });
+
+    const res = await POST(req as never);
+    expect(res.status).toBe(400);
+
+    const data = await parseResponseJSON<{ error: string }>(res);
+    expect(data.error).toBeDefined();
+    expect(mockCreateLLMProvider).not.toHaveBeenCalled();
+  });
+
+  test("returns 400 when databaseType is oversized without calling provider", async () => {
+    const req = createMockRequest("/api/ai/describe-schema", {
+      method: "POST",
+      body: {
+        schemaContext: "users(id, name)",
+        databaseType: "x".repeat(200_000),
+      },
+    });
+
+    const res = await POST(req as never);
+    expect(res.status).toBe(400);
+
+    const data = await parseResponseJSON<{ error: string }>(res);
+    expect(data.error).toBeDefined();
+    expect(mockCreateLLMProvider).not.toHaveBeenCalled();
   });
 
   test("accepts schemaContext within the budget", async () => {
