@@ -77,10 +77,7 @@ interface DataProfilerProps {
   userRole?: string;
 }
 
-function resolveTableSchemaSnippet(
-  schemaContext: string | undefined,
-  tableSchema: DetailedObject | null,
-): string {
+function resolveTableSchemaSnippet(schemaContext: string | undefined, tableSchema: DetailedObject | null): string {
   if (schemaContext) {
     try {
       const parsed = JSON.parse(schemaContext);
