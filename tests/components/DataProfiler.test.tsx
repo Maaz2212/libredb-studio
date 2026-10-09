@@ -560,6 +560,34 @@ describe("DataProfiler", () => {
     globalThis.fetch = originalFetch;
   });
 
+  test("preserves single-table schemaContext when provided", async () => {
+    restoreGlobalFetch();
+    let capturedBody: { schemaContext: string } | null = null;
+    const singleTableContext = JSON.stringify([{ name: "single_table", columns: [] }]);
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/api/db/profile")) {
+        return new Response(JSON.stringify(mockProfileResponse), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (url.includes("/api/ai/describe-schema")) {
+        const bodyStr = typeof init?.body === "string" ? init.body : await (input as Request).text();
+        capturedBody = JSON.parse(bodyStr);
+        return new Response("summary", { status: 200 });
+      }
+      return new Response("Not found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const props = createDefaultProps({ schemaContext: singleTableContext });
+    render(<DataProfiler {...props} />);
+    await waitFor(() => {
+      expect(capturedBody).not.toBeNull();
+    });
+    expect(capturedBody!.schemaContext).toContain(singleTableContext);
+    globalThis.fetch = originalFetch;
+  });
+
   test("displays AI error when describe-schema route refuses", async () => {
     const originalFetch = globalThis.fetch;
     const refusalError = "The request is too large for the configured model's context.";
