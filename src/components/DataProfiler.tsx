@@ -44,15 +44,21 @@ function resolveTableSchemaContext(
   schemaContext: string | undefined,
   tableSchema: DetailedObject | null,
   tableName: string,
+  tablePath?: readonly string[],
 ): string {
   if (schemaContext) {
     try {
       const parsed = JSON.parse(schemaContext);
       if (Array.isArray(parsed)) {
+        if (parsed.length <= 1) {
+          return schemaContext;
+        }
+        const lastSegment = tablePath && tablePath.length > 0 ? tablePath[tablePath.length - 1] : tableName;
         const found = parsed.find(
           (t: { name?: string; path?: readonly string[] }) =>
             t.name === tableName ||
-            (Array.isArray(t.path) && (t.path[t.path.length - 1] === tableName || t.path.join(".") === tableName)),
+            t.name === lastSegment ||
+            (Array.isArray(t.path) && (t.path[t.path.length - 1] === lastSegment || t.path.join(".") === tableName)),
         );
         if (found) {
           return JSON.stringify(found);
@@ -60,9 +66,9 @@ function resolveTableSchemaContext(
         if (tableSchema) {
           return JSON.stringify(tableSchema);
         }
-      } else {
         return schemaContext;
       }
+      return schemaContext;
     } catch {
       if (schemaContext.length > MAX_SCHEMA_CONTEXT_CHARS && tableSchema) {
         return JSON.stringify(tableSchema);
@@ -128,7 +134,7 @@ export function DataProfiler({
         )
         .join("\n");
 
-      const tableSchemaSnippet = resolveTableSchemaContext(schemaContext, tableSchema, tableName);
+      const tableSchemaSnippet = resolveTableSchemaContext(schemaContext, tableSchema, tableName, tablePath);
       let fullSchemaContext = `Table: ${tableName} (${data.totalRows} rows)\n\nColumn Profiles:\n${profileSummary}\n\nSchema:\n${tableSchemaSnippet}`;
       if (fullSchemaContext.length > MAX_SCHEMA_CONTEXT_CHARS) {
         fullSchemaContext = fullSchemaContext.slice(0, MAX_SCHEMA_CONTEXT_CHARS);
