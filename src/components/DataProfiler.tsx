@@ -40,45 +40,13 @@ interface DataProfilerProps {
   onDescribeSchema?: (params: { tableName: string; schemaContext: string }) => Promise<string>;
 }
 
-function resolveTableSchemaContext(
-  schemaContext: string | undefined,
-  tableSchema: DetailedObject | null,
-  tableName: string,
-  tablePath?: readonly string[],
-): string {
-  if (schemaContext) {
-    try {
-      const parsed = JSON.parse(schemaContext);
-      if (Array.isArray(parsed) && parsed.length > 1) {
-        const lastSegment = tablePath && tablePath.length > 0 ? tablePath[tablePath.length - 1] : tableName;
-        const found = parsed.find(
-          (t: { name?: string; path?: readonly string[] }) =>
-            t.name === tableName ||
-            t.name === lastSegment ||
-            (Array.isArray(t.path) && (t.path[t.path.length - 1] === lastSegment || t.path.join(".") === tableName)),
-        );
-        if (found) {
-          return JSON.stringify(found);
-        }
-      }
-    } catch {
-      // Non-JSON schemaContext falls back to raw string
-    }
-    return schemaContext;
-  }
-  if (tableSchema) {
-    return JSON.stringify(tableSchema);
-  }
-  return "";
-}
-
 export function DataProfiler({
   isOpen,
   onClose,
   tablePath,
   tableSchema,
   connection,
-  schemaContext,
+  schemaContext: _schemaContext,
   databaseType,
   onProfile,
   onDescribeSchema,
@@ -124,7 +92,7 @@ export function DataProfiler({
         )
         .join("\n");
 
-      const tableSchemaSnippet = resolveTableSchemaContext(schemaContext, tableSchema, tableName, tablePath);
+      const tableSchemaSnippet = tableSchema ? JSON.stringify(tableSchema) : "";
       let fullSchemaContext = `Table: ${tableName} (${data.totalRows} rows)\n\nColumn Profiles:\n${profileSummary}\n\nSchema:\n${tableSchemaSnippet}`;
       if (fullSchemaContext.length > MAX_SCHEMA_CONTEXT_CHARS) {
         fullSchemaContext = fullSchemaContext.slice(0, MAX_SCHEMA_CONTEXT_CHARS);

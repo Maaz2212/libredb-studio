@@ -451,26 +451,47 @@ describe("DataProfiler", () => {
     globalThis.fetch = originalFetch;
   });
 
-  test("sends profiler summary request under the limit when schemaContext exceeds 30,000 characters", async () => {
-    const aiText = "Profiled summary for users table.";
+  test("sends only the profiled table schema when multiple schemas contain a table with the same name", async () => {
+    const aiText = "Profiled summary for app.users table.";
     restoreGlobalFetch();
 
     const originalFetch = globalThis.fetch;
     let capturedBody: { schemaContext: string } | null = null;
 
-    const largeSchema = JSON.stringify(
-      Array.from({ length: 60 }, (_, i) => ({
-        name: i === 0 ? "users" : `table_${i}`,
-        columns: Array.from({ length: 25 }, (_, j) => ({
-          name: `col_${j}`,
-          type: "varchar(255)",
-          nullable: true,
-          isPrimary: j === 0,
-        })),
-        rowCount: 100,
+    const publicUsersTable = {
+      name: "users",
+      kind: "table" as const,
+      path: ["public", "users"],
+      rowCount: 50,
+      indexes: [],
+      columns: [
+        { name: "public_id", type: "integer", nullable: false, isPrimary: true },
+        { name: "public_profile", type: "text", nullable: true, isPrimary: false },
+      ],
+    };
+
+    const appUsersTable = {
+      name: "users",
+      kind: "table" as const,
+      path: ["app", "users"],
+      rowCount: 100,
+      indexes: [],
+      columns: [
+        { name: "app_id", type: "integer", nullable: false, isPrimary: true },
+        { name: "app_role", type: "varchar(50)", nullable: false, isPrimary: false },
+      ],
+    };
+
+    // rawSchemaContext contains both schemas and exceeds 30,000 characters
+    const largePadding = Array.from({ length: 60 }, (_, i) => ({
+      name: `other_table_${i}`,
+      columns: Array.from({ length: 20 }, (_, j) => ({
+        name: `col_${j}`,
+        type: "varchar(255)",
       })),
-    );
-    expect(largeSchema.length).toBeGreaterThan(30_000);
+    }));
+    const rawSchemaContext = JSON.stringify([publicUsersTable, appUsersTable, ...largePadding]);
+    expect(rawSchemaContext.length).toBeGreaterThan(30_000);
 
     globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -501,7 +522,11 @@ describe("DataProfiler", () => {
       return new Response("Not found", { status: 404 });
     }) as unknown as typeof fetch;
 
-    const props = createDefaultProps({ schemaContext: largeSchema });
+    const props = createDefaultProps({
+      tablePath: ["app", "users"],
+      tableSchema: appUsersTable,
+      schemaContext: rawSchemaContext,
+    });
     const { container } = render(<DataProfiler {...props} />);
     const view = within(container);
 
@@ -525,6 +550,12 @@ describe("DataProfiler", () => {
 
     expect(capturedBody).not.toBeNull();
     expect(capturedBody!.schemaContext.length).toBeLessThanOrEqual(30_000);
+    // Sends only the profiled table's columns
+    expect(capturedBody!.schemaContext).toContain("app_id");
+    expect(capturedBody!.schemaContext).toContain("app_role");
+    // Does NOT contain the other schema's columns from rawSchemaContext
+    expect(capturedBody!.schemaContext).not.toContain("public_id");
+    expect(capturedBody!.schemaContext).not.toContain("public_profile");
 
     globalThis.fetch = originalFetch;
   });
@@ -573,13 +604,21 @@ describe("DataProfiler", () => {
     globalThis.fetch = originalFetch;
   });
 
-  test("truncates fullSchemaContext to MAX_SCHEMA_CONTEXT_CHARS when schemaContext exceeds limit", async () => {
+  test("truncates fullSchemaContext to MAX_SCHEMA_CONTEXT_CHARS when tableSchema exceeds limit", async () => {
     const aiText = "Profiled summary for massive table.";
     restoreGlobalFetch();
 
     const originalFetch = globalThis.fetch;
     let capturedBody: { schemaContext: string } | null = null;
-    const massiveSchema = "x".repeat(35_000);
+    const massiveTable = {
+      ...mockUsersTable,
+      columns: Array.from({ length: 800 }, (_, i) => ({
+        name: `col_${i}_${"x".repeat(35)}`,
+        type: "varchar(255)",
+        nullable: true,
+        isPrimary: false,
+      })),
+    };
 
     globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -610,7 +649,7 @@ describe("DataProfiler", () => {
       return new Response("Not found", { status: 404 });
     }) as unknown as typeof fetch;
 
-    const props = createDefaultProps({ schemaContext: massiveSchema });
+    const props = createDefaultProps({ tableSchema: massiveTable });
     const { container } = render(<DataProfiler {...props} />);
     const view = within(container);
 
@@ -816,7 +855,7 @@ describe("DataProfiler", () => {
     const onProfile = mock(async () => mockProfileResponse);
     const onDescribeSchema = mock(async () => "Adapter AI summary");
 
-    const props = createDefaultProps({ onProfile, onDescribeSchema, schemaContext: "schema ctx" });
+    const props = createDefaultProps({ onProfile, onDescribeSchema });
     const { container } = render(<DataProfiler {...props} />);
     const view = within(container);
 
@@ -846,7 +885,7 @@ describe("DataProfiler", () => {
     };
     expect(describeArg.tableName).toBe("app.users");
     expect(describeArg.schemaContext).toContain("Column Profiles:");
-    expect(describeArg.schemaContext).toContain("schema ctx");
+    expect(describeArg.schemaContext).toContain("users");
 
     // Neither endpoint is hit when the adapters are provided
     expect(fetchSpy).not.toHaveBeenCalled();
