@@ -49,10 +49,7 @@ function resolveTableSchemaContext(
   if (schemaContext) {
     try {
       const parsed = JSON.parse(schemaContext);
-      if (Array.isArray(parsed)) {
-        if (parsed.length <= 1) {
-          return schemaContext;
-        }
+      if (Array.isArray(parsed) && parsed.length > 1) {
         const lastSegment = tablePath && tablePath.length > 0 ? tablePath[tablePath.length - 1] : tableName;
         const found = parsed.find(
           (t: { name?: string; path?: readonly string[] }) =>
@@ -63,18 +60,11 @@ function resolveTableSchemaContext(
         if (found) {
           return JSON.stringify(found);
         }
-        if (tableSchema) {
-          return JSON.stringify(tableSchema);
-        }
-        return schemaContext;
       }
-      return schemaContext;
     } catch {
-      if (schemaContext.length > MAX_SCHEMA_CONTEXT_CHARS && tableSchema) {
-        return JSON.stringify(tableSchema);
-      }
-      return schemaContext;
+      // Non-JSON schemaContext falls back to raw string
     }
+    return schemaContext;
   }
   if (tableSchema) {
     return JSON.stringify(tableSchema);
