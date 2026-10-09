@@ -77,13 +77,35 @@ interface DataProfilerProps {
   userRole?: string;
 }
 
+function resolveTableSchemaSnippet(
+  schemaContext: string | undefined,
+  tableSchema: DetailedObject | null,
+): string {
+  if (schemaContext) {
+    try {
+      const parsed = JSON.parse(schemaContext);
+      if (Array.isArray(parsed) && parsed.length === 1) {
+        return schemaContext;
+      }
+    } catch {
+      // Non-JSON
+    }
+  }
+  if (!tableSchema) return "";
+  const cleanTable = {
+    ...tableSchema,
+    columns: tableSchema.columns?.filter((c) => (c as { provenance?: unknown }).provenance !== "sampled") ?? [],
+  };
+  return JSON.stringify(cleanTable);
+}
+
 export function DataProfiler({
   isOpen,
   onClose,
   tablePath,
   tableSchema,
   connection,
-  schemaContext: _schemaContext,
+  schemaContext,
   databaseType,
   onProfile,
   onDescribeSchema,
@@ -167,7 +189,7 @@ export function DataProfiler({
         )
         .join("\n");
 
-      const tableSchemaSnippet = tableSchema ? JSON.stringify(tableSchema) : "";
+      const tableSchemaSnippet = resolveTableSchemaSnippet(schemaContext, tableSchema);
       let fullSchemaContext = `Table: ${tableName} (${data.totalRows} rows)\n\nColumn Profiles:\n${profileSummary}\n\nSchema:\n${tableSchemaSnippet}`;
       if (fullSchemaContext.length > MAX_SCHEMA_CONTEXT_CHARS) {
         fullSchemaContext = fullSchemaContext.slice(0, MAX_SCHEMA_CONTEXT_CHARS);
