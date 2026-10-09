@@ -40,10 +40,7 @@ interface DataProfilerProps {
   onDescribeSchema?: (params: { tableName: string; schemaContext: string }) => Promise<string>;
 }
 
-function resolveTableSchemaSnippet(
-  schemaContext: string | undefined,
-  tableSchema: DetailedObject | null,
-): string {
+function resolveTableSchemaSnippet(schemaContext: string | undefined, tableSchema: DetailedObject | null): string {
   if (schemaContext) {
     try {
       const parsed = JSON.parse(schemaContext);

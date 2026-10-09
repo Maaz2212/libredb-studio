@@ -569,7 +569,10 @@ describe("DataProfiler", () => {
     globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url.includes("/api/db/profile")) {
-        return new Response(JSON.stringify(mockProfileResponse), { status: 200, headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify(mockProfileResponse), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url.includes("/api/ai/describe-schema")) {
         const bodyStr = typeof init?.body === "string" ? init.body : await (input as Request).text();
