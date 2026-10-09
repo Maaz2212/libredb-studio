@@ -11,6 +11,7 @@ import { detectSensitiveColumns, maskValue } from "@/lib/data-masking";
 import { buildConnectionPayload } from "@/hooks/use-connection-payload";
 import { dataProfileText, type ColumnProfile, type ProfileData } from "@/lib/export/data-profile";
 import { downloadText } from "@/lib/export/download";
+import { MAX_SCHEMA_CONTEXT_CHARS } from "@/lib/llm/types";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,
@@ -39,6 +40,42 @@ interface DataProfilerProps {
   onDescribeSchema?: (params: { tableName: string; schemaContext: string }) => Promise<string>;
 }
 
+function resolveTableSchemaContext(
+  schemaContext: string | undefined,
+  tableSchema: DetailedObject | null,
+  tableName: string,
+): string {
+  if (schemaContext) {
+    try {
+      const parsed = JSON.parse(schemaContext);
+      if (Array.isArray(parsed)) {
+        const found = parsed.find(
+          (t: { name?: string; path?: readonly string[] }) =>
+            t.name === tableName ||
+            (Array.isArray(t.path) && (t.path[t.path.length - 1] === tableName || t.path.join(".") === tableName)),
+        );
+        if (found) {
+          return JSON.stringify(found);
+        }
+        if (tableSchema) {
+          return JSON.stringify(tableSchema);
+        }
+      } else {
+        return schemaContext;
+      }
+    } catch {
+      if (schemaContext.length > MAX_SCHEMA_CONTEXT_CHARS && tableSchema) {
+        return JSON.stringify(tableSchema);
+      }
+      return schemaContext;
+    }
+  }
+  if (tableSchema) {
+    return JSON.stringify(tableSchema);
+  }
+  return "";
+}
+
 export function DataProfiler({
   isOpen,
   onClose,
@@ -53,6 +90,7 @@ export function DataProfiler({
   const [isLoading, setIsLoading] = useState(false);
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [aiSummary, setAiSummary] = useState("");
+  const [aiError, setAiError] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The address as one string, for the header and for the AI prompt. `pathKey` is the
@@ -81,6 +119,7 @@ export function DataProfiler({
 
   const fetchAiSummary = async (data: ProfileData) => {
     setIsAiLoading(true);
+    setAiError(null);
     try {
       const profileSummary = data.columns
         .map(
@@ -89,7 +128,11 @@ export function DataProfiler({
         )
         .join("\n");
 
-      const fullSchemaContext = `Table: ${tableName} (${data.totalRows} rows)\n\nColumn Profiles:\n${profileSummary}\n\nSchema:\n${schemaContext || ""}`;
+      const tableSchemaSnippet = resolveTableSchemaContext(schemaContext, tableSchema, tableName);
+      let fullSchemaContext = `Table: ${tableName} (${data.totalRows} rows)\n\nColumn Profiles:\n${profileSummary}\n\nSchema:\n${tableSchemaSnippet}`;
+      if (fullSchemaContext.length > MAX_SCHEMA_CONTEXT_CHARS) {
+        fullSchemaContext = fullSchemaContext.slice(0, MAX_SCHEMA_CONTEXT_CHARS);
+      }
 
       if (onDescribeSchema) {
         // Platform adapter: use callback instead of fetch
@@ -107,7 +150,11 @@ export function DataProfiler({
           }),
         });
 
-        if (!response.ok) return;
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({ error: "AI summary failed" }));
+          setAiError(err.error || "AI summary failed");
+          return;
+        }
 
         const reader = response.body?.getReader();
         if (!reader) return;
@@ -120,8 +167,8 @@ export function DataProfiler({
           setAiSummary(full);
         }
       }
-    } catch {
-      // AI summary is optional, don't show error
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : "AI summary failed");
     } finally {
       setIsAiLoading(false);
     }
@@ -179,6 +226,7 @@ export function DataProfiler({
     return () => {
       setProfile(null);
       setAiSummary("");
+      setAiError(null);
       setError(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -432,7 +480,7 @@ export function DataProfiler({
                 </div>
 
                 {/* AI Summary */}
-                {(aiSummary || isAiLoading) && (
+                {(aiSummary || isAiLoading || aiError) && (
                   <div className="bg-hue-cyan-tint/5 border border-hue-cyan-tint/10 rounded-lg p-4">
                     <div className="flex items-center gap-2 mb-2">
                       <Sparkles strokeWidth={1.5} className="w-3.5 h-3.5 text-hue-cyan" />
@@ -442,6 +490,7 @@ export function DataProfiler({
                     {aiSummary && (
                       <div className="text-xs text-fg-tertiary leading-relaxed whitespace-pre-wrap">{aiSummary}</div>
                     )}
+                    {aiError && <div className="text-xs text-danger leading-relaxed">{aiError}</div>}
                   </div>
                 )}
               </>

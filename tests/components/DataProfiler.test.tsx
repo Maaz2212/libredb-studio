@@ -451,6 +451,128 @@ describe("DataProfiler", () => {
     globalThis.fetch = originalFetch;
   });
 
+  test("sends profiler summary request under the limit when schemaContext exceeds 30,000 characters", async () => {
+    const aiText = "Profiled summary for users table.";
+    restoreGlobalFetch();
+
+    const originalFetch = globalThis.fetch;
+    let capturedBody: { schemaContext: string } | null = null;
+
+    const largeSchema = JSON.stringify(
+      Array.from({ length: 60 }, (_, i) => ({
+        name: i === 0 ? "users" : `table_${i}`,
+        columns: Array.from({ length: 25 }, (_, j) => ({
+          name: `col_${j}`,
+          type: "varchar(255)",
+          nullable: true,
+          isPrimary: j === 0,
+        })),
+        rowCount: 100,
+      })),
+    );
+    expect(largeSchema.length).toBeGreaterThan(30_000);
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const pathname = new URL(url, "http://localhost:3000").pathname;
+
+      if (pathname.includes("/api/db/profile")) {
+        return new Response(JSON.stringify(mockProfileResponse), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (pathname.includes("/api/ai/describe-schema")) {
+        const bodyStr = typeof init?.body === "string" ? init.body : await (input as Request).text();
+        capturedBody = JSON.parse(bodyStr);
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(aiText));
+            controller.close();
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+        });
+      }
+
+      return new Response("Not found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const props = createDefaultProps({ schemaContext: largeSchema });
+    const { container } = render(<DataProfiler {...props} />);
+    const view = within(container);
+
+    await waitFor(() => {
+      expect(view.queryByText("Column Profiles")).not.toBeNull();
+    });
+
+    await waitFor(
+      () => {
+        expect(view.queryByText("AI Analysis")).not.toBeNull();
+      },
+      { timeout: 3000 },
+    );
+
+    await waitFor(
+      () => {
+        expect(view.queryByText(aiText)).not.toBeNull();
+      },
+      { timeout: 3000 },
+    );
+
+    expect(capturedBody).not.toBeNull();
+    expect(capturedBody!.schemaContext.length).toBeLessThanOrEqual(30_000);
+
+    globalThis.fetch = originalFetch;
+  });
+
+  test("displays AI error when describe-schema route refuses", async () => {
+    const originalFetch = globalThis.fetch;
+    const refusalError = "The request is too large for the configured model's context.";
+    restoreGlobalFetch();
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const pathname = new URL(url, "http://localhost:3000").pathname;
+
+      if (pathname.includes("/api/db/profile")) {
+        return new Response(JSON.stringify(mockProfileResponse), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (pathname.includes("/api/ai/describe-schema")) {
+        return new Response(JSON.stringify({ error: refusalError }), {
+          status: 502,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      return new Response("Not found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const props = createDefaultProps();
+    const { container } = render(<DataProfiler {...props} />);
+    const view = within(container);
+
+    await waitFor(() => {
+      expect(view.queryByText("Column Profiles")).not.toBeNull();
+    });
+
+    await waitFor(
+      () => {
+        expect(view.queryByText(refusalError)).not.toBeNull();
+      },
+      { timeout: 3000 },
+    );
+
+    globalThis.fetch = originalFetch;
+  });
+
   // ── Profile fetch error handling ─────────────────────────────────────────
 
   test("displays error message when profile fetch fails", async () => {
