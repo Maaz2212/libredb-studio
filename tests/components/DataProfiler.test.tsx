@@ -66,7 +66,6 @@ function createDefaultProps(overrides: Partial<Parameters<typeof DataProfiler>[0
     tablePath: ["app", "users"],
     tableSchema: mockUsersTable,
     connection: mockPostgresConnection,
-    schemaContext: "",
     databaseType: "postgres",
     // Masking off unless a test turns it on, so the values below read as the engine sent them.
     maskingConfig: DEFAULT_MASKING_CONFIG,
@@ -467,146 +466,6 @@ describe("DataProfiler", () => {
       { timeout: 3000 },
     );
 
-    globalThis.fetch = originalFetch;
-  });
-
-  test("sends only the profiled table schema when multiple schemas contain a table with the same name", async () => {
-    const aiText = "Profiled summary for app.users table.";
-    restoreGlobalFetch();
-
-    const originalFetch = globalThis.fetch;
-    let capturedBody: { schemaContext: string } | null = null;
-
-    const publicUsersTable = {
-      name: "users",
-      kind: "table" as const,
-      path: ["public", "users"],
-      rowCount: 50,
-      indexes: [],
-      columns: [
-        { name: "public_id", type: "integer", nullable: false, isPrimary: true },
-        { name: "public_profile", type: "text", nullable: true, isPrimary: false },
-      ],
-    };
-
-    const appUsersTable = {
-      name: "users",
-      kind: "table" as const,
-      path: ["app", "users"],
-      rowCount: 100,
-      indexes: [],
-      columns: [
-        { name: "app_id", type: "integer", nullable: false, isPrimary: true },
-        { name: "app_role", type: "varchar(50)", nullable: false, isPrimary: false },
-      ],
-    };
-
-    // rawSchemaContext contains both schemas and exceeds 30,000 characters
-    const largePadding = Array.from({ length: 60 }, (_, i) => ({
-      name: `other_table_${i}`,
-      columns: Array.from({ length: 20 }, (_, j) => ({
-        name: `col_${j}`,
-        type: "varchar(255)",
-      })),
-    }));
-    const rawSchemaContext = JSON.stringify([publicUsersTable, appUsersTable, ...largePadding]);
-    expect(rawSchemaContext.length).toBeGreaterThan(30_000);
-
-    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      const pathname = new URL(url, "http://localhost:3000").pathname;
-
-      if (pathname.includes("/api/db/profile")) {
-        return new Response(JSON.stringify(mockProfileResponse), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }
-
-      if (pathname.includes("/api/ai/describe-schema")) {
-        const bodyStr = typeof init?.body === "string" ? init.body : await (input as Request).text();
-        capturedBody = JSON.parse(bodyStr);
-        const stream = new ReadableStream({
-          start(controller) {
-            controller.enqueue(new TextEncoder().encode(aiText));
-            controller.close();
-          },
-        });
-        return new Response(stream, {
-          status: 200,
-          headers: { "content-type": "text/plain" },
-        });
-      }
-
-      return new Response("Not found", { status: 404 });
-    }) as unknown as typeof fetch;
-
-    const props = createDefaultProps({
-      tablePath: ["app", "users"],
-      tableSchema: appUsersTable,
-      schemaContext: rawSchemaContext,
-    });
-    const { container } = render(<DataProfiler {...props} />);
-    const view = within(container);
-
-    await waitFor(() => {
-      expect(view.queryByText("Column Profiles")).not.toBeNull();
-    });
-
-    await waitFor(
-      () => {
-        expect(view.queryByText("AI Analysis")).not.toBeNull();
-      },
-      { timeout: 3000 },
-    );
-
-    await waitFor(
-      () => {
-        expect(view.queryByText(aiText)).not.toBeNull();
-      },
-      { timeout: 3000 },
-    );
-
-    expect(capturedBody).not.toBeNull();
-    expect(capturedBody!.schemaContext.length).toBeLessThanOrEqual(30_000);
-    // Sends only the profiled table's columns
-    expect(capturedBody!.schemaContext).toContain("app_id");
-    expect(capturedBody!.schemaContext).toContain("app_role");
-    // Does NOT contain the other schema's columns from rawSchemaContext
-    expect(capturedBody!.schemaContext).not.toContain("public_id");
-    expect(capturedBody!.schemaContext).not.toContain("public_profile");
-
-    globalThis.fetch = originalFetch;
-  });
-
-  test("preserves single-table schemaContext when provided", async () => {
-    restoreGlobalFetch();
-    let capturedBody: { schemaContext: string } | null = null;
-    const singleTableContext = JSON.stringify([{ name: "single_table", columns: [] }]);
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      if (url.includes("/api/db/profile")) {
-        return new Response(JSON.stringify(mockProfileResponse), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }
-      if (url.includes("/api/ai/describe-schema")) {
-        const bodyStr = typeof init?.body === "string" ? init.body : await (input as Request).text();
-        capturedBody = JSON.parse(bodyStr);
-        return new Response("summary", { status: 200 });
-      }
-      return new Response("Not found", { status: 404 });
-    }) as unknown as typeof fetch;
-
-    const props = createDefaultProps({ schemaContext: singleTableContext });
-    render(<DataProfiler {...props} />);
-    await waitFor(() => {
-      expect(capturedBody).not.toBeNull();
-    });
-    expect(capturedBody!.schemaContext).toContain(singleTableContext);
     globalThis.fetch = originalFetch;
   });
 
@@ -1400,7 +1259,7 @@ describe("DataProfiler and a column the engine only inferred from sampled data",
         return { ok: false, status: 500, json: { error: "AI not configured" } };
       },
     });
-    render(<DataProfiler {...createDefaultProps({ schemaContext: schemaContextOf(sampledSchema) })} />);
+    render(<DataProfiler {...createDefaultProps({ tablePath: ["articles"], tableSchema: sampledSchema[0] })} />);
     await waitFor(() => {
       expect(bodies).toHaveLength(1);
     });
@@ -1412,7 +1271,9 @@ describe("DataProfiler and a column the engine only inferred from sampled data",
     mockGlobalFetch({ "/api/db/profile": { ok: true, json: mockProfileResponse } });
     const onDescribeSchema = mock(async () => "Adapter AI summary");
     render(
-      <DataProfiler {...createDefaultProps({ onDescribeSchema, schemaContext: schemaContextOf(sampledSchema) })} />,
+      <DataProfiler
+        {...createDefaultProps({ onDescribeSchema, tablePath: ["articles"], tableSchema: sampledSchema[0] })}
+      />,
     );
     await waitFor(() => {
       expect(onDescribeSchema).toHaveBeenCalledTimes(1);
@@ -1443,7 +1304,6 @@ describe("DataProfiler and a column the engine only inferred from sampled data",
     createDefaultProps({
       tablePath: ["articles"],
       tableSchema: sampledSchema[0],
-      schemaContext: schemaContextOf(sampledSchema),
       ...overrides,
     });
 
@@ -1478,6 +1338,35 @@ describe("DataProfiler and a column the engine only inferred from sampled data",
     const argument = (onDescribeSchema.mock.calls as unknown as [{ tableName: string; schemaContext: string }][])[0][0];
     expect(argument.schemaContext).toContain("category_min");
     expect(argument.schemaContext).not.toContain(SAMPLED_MARKER);
+  });
+});
+
+describe("DataProfiler and the schema it hands a model", () => {
+  afterEach(() => {
+    cleanup();
+    restoreGlobalFetch();
+  });
+
+  // The profiled object goes through `schemaContextOf`, the projection every AI panel's schema takes, so what that
+  // projection withholds (a sampled column, a read range kept for the generators) stays out of this request too.
+  test("the AI summary request carries the profiled object as schemaContextOf projects it", async () => {
+    const RANGE_MARKER = "a-read-range-the-model-never-sees";
+    const tableSchema = { ...mockUsersTable, readRanges: [{ prefix: RANGE_MARKER }] };
+    const bodies: string[] = [];
+    mockGlobalFetch({
+      "/api/db/profile": { ok: true, json: mockProfileResponse },
+      "/api/ai/describe-schema": async (req) => {
+        bodies.push(await req.text());
+        return { ok: false, status: 500, json: { error: "AI not configured" } };
+      },
+    });
+    render(<DataProfiler {...createDefaultProps({ tableSchema })} />);
+    await waitFor(() => {
+      expect(bodies).toHaveLength(1);
+    });
+    const { schemaContext } = JSON.parse(bodies[0]) as { schemaContext: string };
+    expect(schemaContext.endsWith(`\n\nSchema:\n${schemaContextOf([tableSchema])}`)).toBe(true);
+    expect(schemaContext).not.toContain(RANGE_MARKER);
   });
 });
 

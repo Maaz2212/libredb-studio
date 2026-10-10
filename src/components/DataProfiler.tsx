@@ -6,7 +6,7 @@ import { LoaderCircle, ChartColumn, X, CircleAlert, Sparkles, Lock, Download } f
 import { cn } from "@/lib/utils";
 import { DatabaseConnection } from "@/lib/types";
 import { objectPathLabel, pathKey } from "@/lib/db/object-path";
-import { machineColumns, type DetailedObject } from "@/lib/db/detailed-object";
+import { machineColumns, schemaContextOf, type DetailedObject } from "@/lib/db/detailed-object";
 import {
   detectSensitiveColumnsFromConfig,
   loadMaskingConfig,
@@ -60,7 +60,6 @@ interface DataProfilerProps {
   tablePath: readonly string[];
   tableSchema: DetailedObject | null;
   connection: DatabaseConnection | null;
-  schemaContext?: string;
   databaseType?: string;
   /** Optional API adapter: when provided, bypasses the built-in /api/db/profile fetch. */
   onProfile?: (params: { connectionId: string; tablePath: readonly string[] }) => Promise<ProfileData>;
@@ -77,32 +76,12 @@ interface DataProfilerProps {
   userRole?: string;
 }
 
-function resolveTableSchemaSnippet(schemaContext: string | undefined, tableSchema: DetailedObject | null): string {
-  if (schemaContext) {
-    try {
-      const parsed = JSON.parse(schemaContext);
-      if (Array.isArray(parsed) && parsed.length === 1) {
-        return schemaContext;
-      }
-    } catch {
-      // Non-JSON
-    }
-  }
-  if (!tableSchema) return "";
-  const cleanTable = {
-    ...tableSchema,
-    columns: tableSchema.columns?.filter((c) => (c as { provenance?: unknown }).provenance !== "sampled") ?? [],
-  };
-  return JSON.stringify(cleanTable);
-}
-
 export function DataProfiler({
   isOpen,
   onClose,
   tablePath,
   tableSchema,
   connection,
-  schemaContext,
   databaseType,
   onProfile,
   onDescribeSchema,
@@ -165,7 +144,7 @@ export function DataProfiler({
     setAiError(null);
     try {
       // The profile table lists every column, but the summary goes to a model, which never sees a column the
-      // engine only inferred from sampled data: `machineColumns` decides which, as for `schemaContext` below.
+      // engine only inferred from sampled data: `machineColumns` decides which, as it does in `schemaContextOf` below.
       const declared = new Set(machineColumns(tableSchema?.columns ?? []));
       const withheld = new Set(
         (tableSchema?.columns ?? []).filter((column) => !declared.has(column)).map((column) => column.name),
@@ -186,7 +165,7 @@ export function DataProfiler({
         )
         .join("\n");
 
-      const tableSchemaSnippet = resolveTableSchemaSnippet(schemaContext, tableSchema);
+      const tableSchemaSnippet = tableSchema ? schemaContextOf([tableSchema]) : "";
       let fullSchemaContext = `Table: ${tableName} (${data.totalRows} rows)\n\nColumn Profiles:\n${profileSummary}\n\nSchema:\n${tableSchemaSnippet}`;
       if (fullSchemaContext.length > MAX_SCHEMA_CONTEXT_CHARS) {
         fullSchemaContext = fullSchemaContext.slice(0, MAX_SCHEMA_CONTEXT_CHARS);
