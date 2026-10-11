@@ -2658,7 +2658,7 @@ describe("object surface", () => {
     expect((await provider.describeObject(["probe_pipeline"], "pipeline")).columns).toEqual([]);
   });
 
-  test("describing an index with a flattened field marks it projectable: false (#1459)", async () => {
+  test("describing an index with a flattened field marks it projectable: false, leaving unsigned_long and version projectable (#1459)", async () => {
     replyFor = (request) => {
       if (request.path === "/_cat/indices?format=json&bytes=b") {
         return ok(
@@ -2678,13 +2678,36 @@ describe("object surface", () => {
           ]),
         );
       }
+      if (request.path === "/probe_shapes2/_mapping") {
+        return ok(
+          JSON.stringify({
+            probe_shapes2: {
+              mappings: {
+                properties: {
+                  blob: { type: "flattened" },
+                  big: { type: "unsigned_long" },
+                  ver: { type: "version" },
+                  items: {
+                    type: "nested",
+                    properties: {
+                      sku: { type: "keyword" },
+                    },
+                  },
+                },
+              },
+            },
+          }),
+        );
+      }
       return defaultReply(request);
     };
     const provider = await connectProvider();
     const detail = await provider.describeObject(["probe_shapes2"], "index");
     expect(detail.columns).toEqual([
+      { name: "big", type: "unsigned_long", nullable: true, isPrimary: false },
       { name: "blob", type: "flattened", nullable: true, isPrimary: false, projectable: false },
       { name: "items.sku", type: "keyword", nullable: true, isPrimary: false },
+      { name: "ver", type: "version", nullable: true, isPrimary: false },
     ]);
   });
 });

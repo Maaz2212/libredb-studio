@@ -55,8 +55,9 @@
  * supports. Measured cases: `flattened` on Elasticsearch is refused with "Cannot use
  * field [blob] with unsupported type [flattened]", and on OpenSearch `flat_object`,
  * `unsigned_long` and `version` fail with "can't resolve Symbol(...) in type env".
- * The column listing is kept so the schema tree reflects the mapping, but these
- * types carry `projectable: false` so starter query generation leaves them out (#1459).
+ * The column listing is kept so the schema tree reflects the mapping, but each
+ * product declares its unprojectable types on `SearchProduct` and passes them into
+ * `toColumns` so starter query generation leaves them out (#1459).
  */
 
 import type { ColumnSchema } from "@/lib/types";
@@ -88,25 +89,6 @@ import { type SearchIndexInfo, type SearchMappingField } from "./transport";
  * completion/labelling surfaces have to agree with, and one definition is the point.
  */
 export const SEARCH_CONTAINER_TYPES: readonly string[] = Object.freeze(["object", "nested"]);
-
-/**
- * Mapping types whose values the SQL surface refuses to project in a SELECT list (#1459).
- *
- * Measured on Elasticsearch 9.5.3: `SELECT blob FROM orders` where `blob` is `flattened`
- * fails with HTTP 400, "Cannot use field [blob] with unsupported type [flattened]".
- * Measured on OpenSearch 3.9.0: `SELECT blob FROM orders` where `blob` is `flat_object`,
- * `unsigned_long`, or `version` fails with "can't resolve Symbol(namespace=FIELD_NAME, name=blob) in type env".
- *
- * Like {@link SEARCH_CONTAINER_TYPES}, these strings are mapping type values. They are
- * kept in the column listing so the tree is honest about the mapping, but marked with
- * `projectable: false` so `query-generators.ts` leaves them out of starter SELECT queries.
- */
-export const SEARCH_UNPROJECTABLE_TYPES: readonly string[] = Object.freeze([
-  "flattened",
-  "flat_object",
-  "unsigned_long",
-  "version",
-]);
 
 // ============================================================================
 // Options
@@ -155,8 +137,8 @@ function isContainer(field: SearchMappingField): boolean {
  * the same column; and the mapping type is the word the user wrote in their own
  * index definition, so it is the one they can look up.
  */
-function toColumn(field: SearchMappingField): ColumnSchema {
-  const isUnprojectable = SEARCH_UNPROJECTABLE_TYPES.includes(field.type);
+function toColumn(field: SearchMappingField, unprojectableTypes: readonly string[] = []): ColumnSchema {
+  const isUnprojectable = unprojectableTypes.includes(field.type);
   return {
     // The dotted path, because that is the name the SQL surface accepts:
     // `SELECT note.keyword, address.city` returns both columns (measured), so the
@@ -206,7 +188,7 @@ function toColumn(field: SearchMappingField): ColumnSchema {
  * Sorting by path also keeps `address.city` next to the other `address.*` fields,
  * which is the grouping a container leaves behind once it is dropped as a column.
  */
-export function toColumns(fields: SearchMappingField[]): ColumnSchema[] {
+export function toColumns(fields: SearchMappingField[], unprojectableTypes: readonly string[] = []): ColumnSchema[] {
   return (
     fields
       .filter((field) => !isContainer(field))
@@ -230,7 +212,7 @@ export function toColumns(fields: SearchMappingField[]): ColumnSchema[] {
       // selectable on Elasticsearch, and the schema tree does not offer it. A user
       // who wants an exact-match subfield types it, and it works.
       .filter((field) => !field.isMultiField)
-      .map(toColumn)
+      .map((field) => toColumn(field, unprojectableTypes))
       .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
   );
 }
