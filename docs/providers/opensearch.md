@@ -1688,6 +1688,8 @@ because the provider exposes no `cancelQuery`
   mapping does not say which types SQL supports, and enumerating them would be a per-version list this
   code cannot verify
   (the file docblock in [introspect.ts](../../src/lib/db/providers/sql/search/introspect.ts)).
+  Measured: `flat_object`, `unsigned_long` and `version` are refused with "can't resolve Symbol(...) in type env".
+  The starter query "Generate Query" writes leaves such unprojectable fields out of the SELECT list so the statement runs (#1459).
 - **The whole result body is buffered** before it is parsed
   ([§3.1](#31-http-only--no-driver-and-what-that-costs)).
 

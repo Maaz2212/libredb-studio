@@ -26,7 +26,12 @@
  * so the mapping is the only honest source.
  */
 import { describe, expect, test } from "bun:test";
-import { isSystemIndex, SEARCH_CONTAINER_TYPES } from "@/lib/db/providers/sql/search/introspect";
+import {
+  isSystemIndex,
+  SEARCH_CONTAINER_TYPES,
+  SEARCH_UNPROJECTABLE_TYPES,
+  toColumns,
+} from "@/lib/db/providers/sql/search/introspect";
 import type {
   SearchClusterHealth,
   SearchIndexInfo,
@@ -197,6 +202,18 @@ describe("the container decision", () => {
   });
 });
 
+describe("the unprojectable types decision (#1459)", () => {
+  // Measured on Elasticsearch 9.5.3 (flattened) and OpenSearch 3.9.0 (flat_object, unsigned_long, version):
+  // naming any of these types causes the SQL engine to reject the statement.
+  test("names exactly the four measured unprojectable mapping types", () => {
+    expect([...SEARCH_UNPROJECTABLE_TYPES]).toEqual(["flattened", "flat_object", "unsigned_long", "version"]);
+  });
+
+  test("is frozen, so no caller can widen it at runtime", () => {
+    expect(Object.isFrozen(SEARCH_UNPROJECTABLE_TYPES)).toBe(true);
+  });
+});
+
 // ============================================================================
 // System indices
 // ============================================================================
@@ -224,6 +241,28 @@ describe("isSystemIndex", () => {
 // ============================================================================
 // Columns
 // ============================================================================
+
+describe("toColumns (#1459)", () => {
+  test("marks unprojectable mapping types with projectable: false", () => {
+    const fields: SearchMappingField[] = [
+      { path: "id", type: "keyword", isMultiField: false, hasSubfields: false },
+      { path: "blob", type: "flattened", isMultiField: false, hasSubfields: false },
+      { path: "obj", type: "flat_object", isMultiField: false, hasSubfields: false },
+      { path: "big", type: "unsigned_long", isMultiField: false, hasSubfields: false },
+      { path: "ver", type: "version", isMultiField: false, hasSubfields: false },
+      { path: "name", type: "text", isMultiField: false, hasSubfields: false },
+    ];
+    const columns = toColumns(fields);
+    expect(columns).toEqual([
+      { name: "big", type: "unsigned_long", nullable: true, isPrimary: false, projectable: false },
+      { name: "blob", type: "flattened", nullable: true, isPrimary: false, projectable: false },
+      { name: "id", type: "keyword", nullable: true, isPrimary: false },
+      { name: "name", type: "text", nullable: true, isPrimary: false },
+      { name: "obj", type: "flat_object", nullable: true, isPrimary: false, projectable: false },
+      { name: "ver", type: "version", nullable: true, isPrimary: false, projectable: false },
+    ]);
+  });
+});
 
 // ============================================================================
 // Table shape

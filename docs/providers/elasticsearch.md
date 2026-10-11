@@ -1718,6 +1718,7 @@ because the provider exposes no `cancelQuery` ([§3.8](#38-the-deadline-is-the-c
   mapping declares it like any other field. The mapping does not say which types SQL supports, and
   enumerating them would be a per-version list this code cannot verify — one that would hide fields a
   future version reads perfectly well (the file docblock in [introspect.ts](../../src/lib/db/providers/sql/search/introspect.ts)).
+  The starter query "Generate Query" writes leaves such unprojectable fields out of the SELECT list so the statement runs (#1459).
 - **The whole result body is buffered** before it is parsed
   ([§3.1](#31-http-only--no-driver-and-what-that-costs)).
 

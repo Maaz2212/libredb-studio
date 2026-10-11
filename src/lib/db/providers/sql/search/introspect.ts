@@ -52,11 +52,11 @@
  *
  * Recorded limitation: a type the engine maps but its SQL surface cannot read is
  * still listed as a column, because the mapping does not say which types SQL
- * supports. Measured case: `flattened` on Elasticsearch is refused with "Cannot use
- * field [blob] with unsupported type [flattened]" while the mapping declares it like
- * any other field. Enumerating the unsupported types would be a per-version list
- * this file cannot verify, and inventing one would hide fields that a future version
- * reads perfectly well.
+ * supports. Measured cases: `flattened` on Elasticsearch is refused with "Cannot use
+ * field [blob] with unsupported type [flattened]", and on OpenSearch `flat_object`,
+ * `unsigned_long` and `version` fail with "can't resolve Symbol(...) in type env".
+ * The column listing is kept so the schema tree reflects the mapping, but these
+ * types carry `projectable: false` so starter query generation leaves them out (#1459).
  */
 
 import type { ColumnSchema } from "@/lib/types";
@@ -88,6 +88,25 @@ import { type SearchIndexInfo, type SearchMappingField } from "./transport";
  * completion/labelling surfaces have to agree with, and one definition is the point.
  */
 export const SEARCH_CONTAINER_TYPES: readonly string[] = Object.freeze(["object", "nested"]);
+
+/**
+ * Mapping types whose values the SQL surface refuses to project in a SELECT list (#1459).
+ *
+ * Measured on Elasticsearch 9.5.3: `SELECT blob FROM orders` where `blob` is `flattened`
+ * fails with HTTP 400, "Cannot use field [blob] with unsupported type [flattened]".
+ * Measured on OpenSearch 3.9.0: `SELECT blob FROM orders` where `blob` is `flat_object`,
+ * `unsigned_long`, or `version` fails with "can't resolve Symbol(namespace=FIELD_NAME, name=blob) in type env".
+ *
+ * Like {@link SEARCH_CONTAINER_TYPES}, these strings are mapping type values. They are
+ * kept in the column listing so the tree is honest about the mapping, but marked with
+ * `projectable: false` so `query-generators.ts` leaves them out of starter SELECT queries.
+ */
+export const SEARCH_UNPROJECTABLE_TYPES: readonly string[] = Object.freeze([
+  "flattened",
+  "flat_object",
+  "unsigned_long",
+  "version",
+]);
 
 // ============================================================================
 // Options
@@ -137,6 +156,7 @@ function isContainer(field: SearchMappingField): boolean {
  * index definition, so it is the one they can look up.
  */
 function toColumn(field: SearchMappingField): ColumnSchema {
+  const isUnprojectable = SEARCH_UNPROJECTABLE_TYPES.includes(field.type);
   return {
     // The dotted path, because that is the name the SQL surface accepts:
     // `SELECT note.keyword, address.city` returns both columns (measured), so the
@@ -169,6 +189,7 @@ function toColumn(field: SearchMappingField): ColumnSchema {
     // searchable, and it changes no value any document carries. Reporting it as a
     // default would tell the user a value they never wrote is stored in their
     // documents.
+    ...(isUnprojectable ? { projectable: false } : {}),
   };
 }
 
