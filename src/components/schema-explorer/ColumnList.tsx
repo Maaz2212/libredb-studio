@@ -1,5 +1,6 @@
 import React from "react";
 import { sampledMark, type DetailedObject } from "@/lib/db/detailed-object";
+import { isIndexesUnavailable } from "@/lib/db/object-kinds";
 import { Key, Hash } from "lucide-react";
 
 interface ColumnListProps {
@@ -56,7 +57,7 @@ export const ColumnList = React.memo(function ColumnList({ columns, indexes }: C
           ))}
         </div>
       )}
-      {!Array.isArray(indexes) && "unavailable" in indexes && (
+      {isIndexesUnavailable(indexes) && (
         <div className="pt-2 pb-1">
           <div className="flex items-center gap-1.5 px-2 mb-1">
             <Hash strokeWidth={1.5} className="w-2.5 h-2.5 text-hue-purple/40" />
