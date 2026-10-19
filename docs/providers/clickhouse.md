@@ -267,16 +267,14 @@ monitoring panels and maintenance operations that need their own grant degrade
 
 Restricted users without server-wide administrative privileges can browse databases and inspect tables safely. Three grants govern what is unlocked in the object tree and schema explorer:
 
-1. **`GRANT SELECT ON <database>.* TO <user>`** (or on individual user tables)
-   - **What it unlocks:** Basic database and object tree navigation.
-   - Tables, views, and materialized views appear in their respective folders, and column types/defaults are inspectable.
-   - ClickHouse implicitly filters `system.tables` and `system.columns` to only the relations the user has permission to view.
-   - User-defined functions (`system.functions`) are also browsable because UDFs do not require extra catalog grants.
+1. **`GRANT SELECT ON system.dictionaries TO <user>`**
+   - **What it unlocks:** Querying the `system.dictionaries` catalog.
+   - When granted, Studio queries `system.dictionaries` to count dictionaries and check dictionary names for the folder split.
+   - When denied (code `497`), only the Dictionaries folder count is marked `{ unavailable: "<refusal reason>" }`, while `listObjects(..., "dictionary")` rejects with `AuthenticationError` (because it queries `system.dictionaries` directly). Tables, views, materialized views, and user-defined functions remain fully usable, and DDL dictionaries (or tables with `ENGINE = Dictionary(...)`) remain listed under the Tables folder rather than breaking the tree or crashing the provider.
 
-2. **`GRANT SELECT ON system.dictionaries TO <user>`**
-   - **What it unlocks:** The Dictionaries folder (`system.dictionaries`) in the object tree.
-   - When granted, Studio can count and list all dictionaries visible to the database (both DDL dictionaries in `<database>` and XML/config-file dictionaries with empty database `''`), and distinguishes DDL dictionaries from ordinary tables configured with `ENGINE = Dictionary(...)`.
-   - When denied (code `497`), Studio marks the Dictionaries folder count and listing as `{ unavailable: "<refusal reason>" }` while keeping tables, views, and functions fully usable. DDL dictionaries or tables with engine `Dictionary` remain listed under the Tables folder rather than breaking the tree or crashing the provider.
+2. **`GRANT dictGet ON <database>.* TO <user>`** (or `GRANT SHOW DICTIONARIES ON <database>.* TO <user>`)
+   - **What it unlocks:** The table / dictionary folder split.
+   - **Why this grant is needed for the split:** Measured in #1768, `SELECT ON system.dictionaries` alone returns 0 rows (`dictionary: 0`) for dictionaries in `<database>` if the user lacks dictionary access privileges, so DDL dictionaries still list under the Tables folder. Granting `dictGet ON <database>.*` (or `SHOW DICTIONARIES`) allows ClickHouse to return the database's dictionary rows from `system.dictionaries`, which enables Studio to pull DDL dictionaries out of the Tables folder and list them in the Dictionaries folder.
 
 3. **`GRANT SELECT ON system.data_skipping_indices TO <user>`**
    - **What it unlocks:** Data-skipping index details on tables.
@@ -1026,8 +1024,8 @@ never coerced to zero.
 
 A refused count is reported per kind as `{ unavailable }` carrying **the server's own sentence**,
 verbatim and unprefixed, because that text is rendered to a person as the reason a folder has no
-number. It is a live case rather than a defensive arm: `system.functions` needs its own grant and a
-restricted user sees `500` / code `497`.
+number. It is a live case rather than a defensive arm: `system.dictionaries` needs its own grant and a
+restricted user sees code `497` (while `system.functions` needs no catalog grant, measured in #1768).
 
 #### What the last path segment carries
 
