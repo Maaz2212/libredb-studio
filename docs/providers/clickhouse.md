@@ -1025,7 +1025,7 @@ never coerced to zero.
 A refused count is reported per kind as `{ unavailable }` carrying **the server's own sentence**,
 verbatim and unprefixed, because that text is rendered to a person as the reason a folder has no
 number. It is a live case rather than a defensive arm: `system.dictionaries` needs its own grant and a
-restricted user sees code `497` (while `system.functions` needs no catalog grant, measured in #1768).
+restricted user sees code `497` (while `system.functions` needs no catalog grant, measured in the `src_probe` table below).
 
 #### What the last path segment carries
 
