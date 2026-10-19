@@ -138,7 +138,10 @@ describe("ColumnList", () => {
     const { getByTestId } = render(
       <ColumnList columns={columnsWithPrimary} indexes={{ unavailable: "permission denied" }} />,
     );
-    expect(getByTestId("indexes-unavailable")).not.toBeNull();
+    const element = getByTestId("indexes-unavailable");
+    expect(element).not.toBeNull();
+    expect(element.textContent).toBe("permission denied");
+    expect(element.getAttribute("title")).toBe("permission denied");
   });
 
   // ── Edge cases ──────────────────────────────────────────────────────────

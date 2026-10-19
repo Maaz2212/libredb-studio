@@ -345,12 +345,28 @@ function tablesAndFunctionsSql(database: string, knownDictionaries?: readonly st
  */
 function dictionariesSql(database: string): string {
   return [
-    "SELECT name AS objectName,",
+    "SELECT database AS objectDatabase,",
+    "name AS objectName,",
     "'dictionary' AS objectKind,",
     "CAST(NULL, 'Nullable(UInt64)') AS objectRows,",
     "CAST(NULL, 'Nullable(UInt64)') AS objectBytes",
     "FROM system.dictionaries",
     `WHERE database = ${literal(database)} OR database = ''`,
+    "ORDER BY name ASC",
+  ].join(" ");
+}
+
+/**
+ * DDL dictionaries defined in this database, out of `system.dictionaries`.
+ *
+ * Excludes config-file dictionaries (database = '') so bare name matching
+ * never collides with a table of the same name in this database.
+ */
+function databaseDictionariesSql(database: string): string {
+  return [
+    "SELECT name AS objectName",
+    "FROM system.dictionaries",
+    `WHERE database = ${literal(database)}`,
     "ORDER BY name ASC",
   ].join(" ");
 }
@@ -659,16 +675,18 @@ function isAccessDenied(error: unknown): boolean {
 }
 
 /**
- * Attempt to read dictionary names in the given database.
+ * Attempt to read DDL dictionary names in the given database.
  * If reading `system.dictionaries` is refused with ACCESS_DENIED (code 497),
  * returns undefined so the caller knows dictionary membership is unknown.
+ * Only returns dictionaries whose database is the browsed database, so a
+ * config-file dictionary sharing a name with a table does not divert that table.
  */
 async function tryReadingDictionaryNames(
   transport: ClickHouseTransport,
   database: string,
 ): Promise<readonly string[] | undefined> {
   try {
-    const dictResult = await transport.query(dictionariesSql(database));
+    const dictResult = await transport.query(databaseDictionariesSql(database));
     const names = new Set<string>();
     for (const row of dictResult.rows) {
       const name = readIdentifier(row.objectName);
@@ -742,14 +760,22 @@ export async function countObjects(
   let knownDictionaries: readonly string[] | undefined;
   try {
     const dictResult = await transport.query(dictionariesSql(database));
-    const names = new Set<string>();
+    const allNames = new Set<string>();
+    const dbNames = new Set<string>();
     for (const row of dictResult.rows) {
       const name = readIdentifier(row.objectName);
-      if (name !== null) names.add(name);
+      const rowDb = readIdentifier(row.objectDatabase);
+      if (name !== null) {
+        allNames.add(name);
+        if (rowDb === database) {
+          dbNames.add(name);
+        }
+      }
     }
-    counts.dictionary = { count: names.size };
-    knownDictionaries = Array.from(names);
+    counts.dictionary = { count: allNames.size };
+    knownDictionaries = Array.from(dbNames);
   } catch (error) {
+    if (!isAccessDenied(error)) throw error;
     counts.dictionary = { unavailable: error instanceof Error ? error.message : String(error) };
     knownDictionaries = undefined;
   }

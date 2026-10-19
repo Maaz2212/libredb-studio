@@ -261,9 +261,27 @@ miss every real denial.
 
 The upside is real: **the schema tree and the overview panel survive a restricted user** — only the
 monitoring panels and maintenance operations that need their own grant degrade
-([§7](#7-monitoring--health)). When `system.dictionaries` or `system.data_skipping_indices` is denied
-with `497`, the tree marks `dictionary` as unavailable while keeping tables, views, and functions intact,
-and table inspection preserves visible columns while reporting `indexes: { unavailable: message }`.
+([§7](#7-monitoring--health)).
+
+#### Privileges and grants for schema inspection (#1768)
+
+Restricted users without server-wide administrative privileges can browse databases and inspect tables safely. Three grants govern what is unlocked in the object tree and schema explorer:
+
+1. **`GRANT SELECT ON <database>.* TO <user>`** (or on individual user tables)
+   - **What it unlocks:** Basic database and object tree navigation.
+   - Tables, views, and materialized views appear in their respective folders, and column types/defaults are inspectable.
+   - ClickHouse implicitly filters `system.tables` and `system.columns` to only the relations the user has permission to view.
+   - User-defined functions (`system.functions`) are also browsable because UDFs do not require extra catalog grants.
+
+2. **`GRANT SELECT ON system.dictionaries TO <user>`**
+   - **What it unlocks:** The Dictionaries folder (`system.dictionaries`) in the object tree.
+   - When granted, Studio can count and list all dictionaries visible to the database (both DDL dictionaries in `<database>` and XML/config-file dictionaries with empty database `''`), and distinguishes DDL dictionaries from ordinary tables configured with `ENGINE = Dictionary(...)`.
+   - When denied (code `497`), Studio marks the Dictionaries folder count and listing as `{ unavailable: "<refusal reason>" }` while keeping tables, views, and functions fully usable. DDL dictionaries or tables with engine `Dictionary` remain listed under the Tables folder rather than breaking the tree or crashing the provider.
+
+3. **`GRANT SELECT ON system.data_skipping_indices TO <user>`**
+   - **What it unlocks:** Data-skipping index details on tables.
+   - When granted, skipping indexes defined on MergeTree tables are read and rendered under the Indexes section.
+   - When denied (code `497`), Studio does not fail table description or falsely assert that the table has 0 indexes: visible columns are returned intact with `indexes: { readonly unavailable: string }`, displaying a refusal notice in the UI and preserving the refusal shape across schema diffs, Agent inventories, and MCP tools.
 
 ### 3.4 `default_format=JSONCompact` as a URL parameter, never appended to the SQL
 

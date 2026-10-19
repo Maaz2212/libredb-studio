@@ -469,7 +469,7 @@ export function isCountUnavailable(count: KindCount): count is { readonly unavai
 }
 
 /**
- * Whether an index list is a REFUSAL rather than an array of index schemas (#1720).
+ * Whether an index list is a REFUSAL rather than an array of index schemas (#1768).
  *
  * Follows the `isCountUnavailable` precedent: a union between the successful reading
  * and `{ readonly unavailable: string }` carries the refusal sentence directly.

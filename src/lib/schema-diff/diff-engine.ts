@@ -385,10 +385,10 @@ export function diffSchemas(source: readonly StoredObject[], target: readonly St
     const targetTable = targetEntry.object;
 
     const columns = diffColumns(sourceTable.columns, targetTable.columns);
-    const indexes = diffIndexes(
-      Array.isArray(sourceTable.indexes) ? sourceTable.indexes : [],
-      Array.isArray(targetTable.indexes) ? targetTable.indexes : [],
-    );
+    const indexes =
+      !Array.isArray(sourceTable.indexes) || !Array.isArray(targetTable.indexes)
+        ? []
+        : diffIndexes(sourceTable.indexes, targetTable.indexes);
     const foreignKeys = diffForeignKeys(sourceTable.foreignKeys || [], targetTable.foreignKeys || []);
 
     if (columns.length > 0 || indexes.length > 0 || foreignKeys.length > 0) {
