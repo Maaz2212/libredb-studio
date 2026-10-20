@@ -22,8 +22,15 @@ const SSLConfigSchema = z
 
 const ConnectionEnvironmentSchema = z.enum(["production", "staging", "development", "local", "other"]);
 
-// Allowed roles in current iteration (matches JWT role: 'admin' | 'user' + wildcard)
-const AllowedRoleSchema = z.enum(["*", "admin", "user"]);
+// Allowed roles: standard roles ('*', 'admin', 'user') or custom roles from OIDC role claim
+const CONTROL_CHAR_REGEX = /[\x00-\x1f\x7f-\x9f]/;
+
+const AllowedRoleSchema = z
+  .string()
+  .min(1, "Role cannot be empty")
+  .max(64, "Role name must not exceed 64 characters")
+  .refine((r) => r.trim() === r, "Role name cannot have leading or trailing whitespace")
+  .refine((r) => !CONTROL_CHAR_REGEX.test(r), "Role name cannot contain control characters");
 
 /**
  * The load's refusal of an MCP opt-in on an engine MCP is not offered for (#1089). Read from the record

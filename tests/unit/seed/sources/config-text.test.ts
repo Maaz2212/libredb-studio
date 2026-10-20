@@ -1,4 +1,4 @@
-import { describe, expect, it, spyOn } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { readFileSync } from "fs";
 import path from "path";
 import { z } from "zod";
@@ -212,6 +212,73 @@ describe("parseSeedConfigText", () => {
       expect(error.message).toContain(`${field}: `);
     }
     for (const value of values) expect(error.message).not.toContain(value);
+  });
+
+  describe("custom roles (OIDC_ROLE_PREFIX)", () => {
+    const origProvider = process.env.NEXT_PUBLIC_AUTH_PROVIDER;
+    const origPrefix = process.env.OIDC_ROLE_PREFIX;
+
+    afterEach(() => {
+      if (origProvider !== undefined) process.env.NEXT_PUBLIC_AUTH_PROVIDER = origProvider;
+      else delete process.env.NEXT_PUBLIC_AUTH_PROVIDER;
+
+      if (origPrefix !== undefined) process.env.OIDC_ROLE_PREFIX = origPrefix;
+      else delete process.env.OIDC_ROLE_PREFIX;
+    });
+
+    it("refuses a custom role when NEXT_PUBLIC_AUTH_PROVIDER is not oidc", () => {
+      delete process.env.NEXT_PUBLIC_AUTH_PROVIDER;
+      process.env.OIDC_ROLE_PREFIX = "team-";
+
+      const text = JSON.stringify({
+        version: "1",
+        connections: [connection("analytics", { roles: ["team-data"] })],
+      });
+      const error = sourceErrorOf(() => parseSeedConfigText(text, "/seed/custom.json", "json"));
+      expect(error.code).toBe("invalid");
+      expect(error.message).toContain('connection "analytics" declares custom role "team-data"');
+      expect(error.message).toContain("/seed/custom.json");
+    });
+
+    it("refuses a custom role when OIDC_ROLE_PREFIX is not set", () => {
+      process.env.NEXT_PUBLIC_AUTH_PROVIDER = "oidc";
+      delete process.env.OIDC_ROLE_PREFIX;
+
+      const text = JSON.stringify({
+        version: "1",
+        connections: [connection("analytics", { roles: ["team-data"] })],
+      });
+      const error = sourceErrorOf(() => parseSeedConfigText(text, "/seed/custom.json", "json"));
+      expect(error.code).toBe("invalid");
+      expect(error.message).toContain('connection "analytics" declares custom role "team-data"');
+    });
+
+    it("refuses a custom role that does not start with OIDC_ROLE_PREFIX", () => {
+      process.env.NEXT_PUBLIC_AUTH_PROVIDER = "oidc";
+      process.env.OIDC_ROLE_PREFIX = "team-";
+
+      const text = JSON.stringify({
+        version: "1",
+        connections: [connection("analytics", { roles: ["group-data"] })],
+      });
+      const error = sourceErrorOf(() => parseSeedConfigText(text, "/seed/custom.json", "json"));
+      expect(error.code).toBe("invalid");
+      expect(error.message).toContain(
+        'connection "analytics" declares role "group-data", which does not start with OIDC_ROLE_PREFIX "team-"',
+      );
+    });
+
+    it("accepts custom roles matching OIDC_ROLE_PREFIX under oidc provider", () => {
+      process.env.NEXT_PUBLIC_AUTH_PROVIDER = "oidc";
+      process.env.OIDC_ROLE_PREFIX = "team-";
+
+      const text = JSON.stringify({
+        version: "1",
+        connections: [connection("analytics", { roles: ["team-data", "admin"] })],
+      });
+      const config = parseSeedConfigText(text, "/seed/custom.json", "json");
+      expect(config.connections[0].roles).toEqual(["team-data", "admin"]);
+    });
   });
 });
 

@@ -35,6 +35,11 @@ export interface UserPayload {
   idpSubject?: string;
   /** The ID token's `iss`, set together with `idpSubject`. */
   idpIssuer?: string;
+  /**
+   * Custom roles extracted from OIDC_ROLE_CLAIM matching OIDC_ROLE_PREFIX. Set only by the
+   * OIDC callback and only when non-empty.
+   */
+  claimRoles?: string[];
 }
 
 export async function signJWT(payload: UserPayload) {
@@ -181,10 +186,12 @@ export async function login(
   username?: string,
   sessionVersion?: number,
   identity?: { subject: string; issuer: string },
+  claimRoles?: string[],
 ) {
   // Only the OIDC callback passes an identity, so every other sign-in signs exactly the claims it did before.
   const idp = identity ? { idpSubject: identity.subject, idpIssuer: identity.issuer } : {};
-  const token = await signJWT({ role, username: username || role, sessionVersion, ...idp });
+  const claims = claimRoles && claimRoles.length > 0 ? { claimRoles } : {};
+  const token = await signJWT({ role, username: username || role, sessionVersion, ...idp, ...claims });
   const cookieStore = await cookies();
   cookieStore.set("auth-token", token, {
     httpOnly: true,

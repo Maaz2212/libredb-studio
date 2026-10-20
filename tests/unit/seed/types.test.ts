@@ -90,8 +90,31 @@ describe("SeedConnectionSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects unknown roles like data-team", () => {
+  it("accepts valid custom role names like data-team", () => {
     const result = SeedConnectionSchema.safeParse({ ...validConn, roles: ["data-team"] });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty role string", () => {
+    const result = SeedConnectionSchema.safeParse({ ...validConn, roles: [""] });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects role with leading or trailing whitespace", () => {
+    const resultLeading = SeedConnectionSchema.safeParse({ ...validConn, roles: [" admin"] });
+    expect(resultLeading.success).toBe(false);
+    const resultTrailing = SeedConnectionSchema.safeParse({ ...validConn, roles: ["admin "] });
+    expect(resultTrailing.success).toBe(false);
+  });
+
+  it("rejects role exceeding 64 characters", () => {
+    const longRole = "a".repeat(65);
+    const result = SeedConnectionSchema.safeParse({ ...validConn, roles: [longRole] });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects role containing control characters", () => {
+    const result = SeedConnectionSchema.safeParse({ ...validConn, roles: ["role\nwith\nnewline"] });
     expect(result.success).toBe(false);
   });
 
