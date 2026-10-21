@@ -50,6 +50,7 @@ function parseYAMLText(text: string): unknown {
 }
 
 const STANDARD_ROLES = new Set(["*", "admin", "user"]);
+const RESERVED_ROLES = new Set(["*", "admin", "user"]);
 
 function validateCustomRoles(config: SeedConfig, origin: string): void {
   const isOidc = process.env.NEXT_PUBLIC_AUTH_PROVIDER === "oidc";
@@ -58,6 +59,12 @@ function validateCustomRoles(config: SeedConfig, origin: string): void {
   for (const conn of config.connections) {
     for (const role of conn.roles) {
       if (STANDARD_ROLES.has(role)) continue;
+      if (RESERVED_ROLES.has(role.toLowerCase())) {
+        throw new OperatorSourceError(
+          "invalid",
+          `Invalid seed config at ${origin}: connection "${conn.id}" declares reserved role "${role}"`,
+        );
+      }
       if (!isOidc || !prefix) {
         throw new OperatorSourceError(
           "invalid",

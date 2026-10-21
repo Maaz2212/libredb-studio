@@ -671,16 +671,16 @@ Each connection has a `roles` field that controls which users can see it:
 | `roles: ["admin"]` | Admin users only |
 | `roles: ["user"]` | Regular users only |
 | `roles: ["admin", "user"]` | Both (same as `["*"]`) |
-| `roles: ["team:analytics"]` | Users holding the custom role `team:analytics` (and admins) |
+| `roles: ["team:analytics"]` | Users holding the custom role `team:analytics` (an admin sees it only if the seed lists `admin` or `*`) |
 
 Roles are matched against the JWT session's `role` field as well as any custom `claimRoles` extracted from the OIDC role claim. The roles are extracted server-side from the authenticated JWT session — never from client input.
 
 ### Custom Seed Roles (OIDC)
 
 When `NEXT_PUBLIC_AUTH_PROVIDER=oidc` and `OIDC_ROLE_PREFIX` is set, seed connections can specify custom roles in addition to the standard `admin`, `user`, and `*`:
-- Custom roles must be 1 to 64 characters, trimmed, contain no control characters, and start with the configured `OIDC_ROLE_PREFIX` (for example, `team:analytics` when `OIDC_ROLE_PREFIX=team:`).
+- Custom roles must be 1 to 64 bytes in UTF-8, trimmed, contain no control characters, and start with the configured `OIDC_ROLE_PREFIX` (for example, `team:analytics` when `OIDC_ROLE_PREFIX=team:`).
 - Custom roles are validated when the seed configuration is loaded: if a custom role is specified while OIDC auth is not active or without `OIDC_ROLE_PREFIX` configured, or if the role does not start with the prefix, the seed source fails with an `invalid` error naming the origin, connection, and role.
-- Administrators can see all connections regardless of their custom roles.
+- An administrator sees a team seed only when the seed lists `admin` (or `*`). Custom roles are matched directly against the caller's active roles without an admin bypass.
 - Non-admin users see a connection if their session carries any matching role from their OIDC `claimRoles`, or if the connection specifies `*` or `user`.
 
 ### Role Projection and Privacy

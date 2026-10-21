@@ -268,6 +268,51 @@ describe("parseSeedConfigText", () => {
       );
     });
 
+    it("refuses reserved role ADMIN in any case even when prefix matches it", () => {
+      process.env.NEXT_PUBLIC_AUTH_PROVIDER = "oidc";
+      process.env.OIDC_ROLE_PREFIX = "A";
+
+      const text = JSON.stringify({
+        version: "1",
+        connections: [connection("analytics", { roles: ["ADMIN"] })],
+      });
+      const error = sourceErrorOf(() => parseSeedConfigText(text, "/seed/custom.json", "json"));
+      expect(error.code).toBe("invalid");
+      expect(error.message).toBe(
+        'Invalid seed config at /seed/custom.json: connection "analytics" declares reserved role "ADMIN"',
+      );
+    });
+
+    it("refuses reserved role User in any case even when prefix matches it", () => {
+      process.env.NEXT_PUBLIC_AUTH_PROVIDER = "oidc";
+      process.env.OIDC_ROLE_PREFIX = "U";
+
+      const text = JSON.stringify({
+        version: "1",
+        connections: [connection("analytics", { roles: ["User"] })],
+      });
+      const error = sourceErrorOf(() => parseSeedConfigText(text, "/seed/custom.json", "json"));
+      expect(error.code).toBe("invalid");
+      expect(error.message).toBe(
+        'Invalid seed config at /seed/custom.json: connection "analytics" declares reserved role "User"',
+      );
+    });
+
+    it("refuses reserved roles in non-OIDC mode as well", () => {
+      delete process.env.NEXT_PUBLIC_AUTH_PROVIDER;
+      delete process.env.OIDC_ROLE_PREFIX;
+
+      const text = JSON.stringify({
+        version: "1",
+        connections: [connection("analytics", { roles: ["admin", "USER"] })],
+      });
+      const error = sourceErrorOf(() => parseSeedConfigText(text, "/seed/custom.json", "json"));
+      expect(error.code).toBe("invalid");
+      expect(error.message).toBe(
+        'Invalid seed config at /seed/custom.json: connection "analytics" declares reserved role "USER"',
+      );
+    });
+
     it("accepts custom roles matching OIDC_ROLE_PREFIX under oidc provider", () => {
       process.env.NEXT_PUBLIC_AUTH_PROVIDER = "oidc";
       process.env.OIDC_ROLE_PREFIX = "team-";

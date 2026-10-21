@@ -288,20 +288,37 @@ describe("mapOIDCClaimRoles", () => {
     expect(result.roles).toHaveLength(20);
   });
 
-  test("accepts claim roles up to 64 characters in length", () => {
+  test("accepts claim roles up to 64 bytes in UTF-8 length", () => {
     const exact64 = "team-" + "a".repeat(59);
-    expect(exact64.length).toBe(64);
+    expect(Buffer.byteLength(exact64, "utf8")).toBe(64);
     const result = mapOIDCClaimRoles([exact64], "team-");
     expect(result.overflow).toBe(false);
     expect(result.roles).toEqual([exact64]);
   });
 
-  test("refuses with overflow when any claim role exceeds 64 characters", () => {
+  test("accepts multi-byte claim role within 64 UTF-8 bytes", () => {
+    // "team-" is 5 bytes. 29 2-byte characters is 58 bytes. 5 + 58 = 63 bytes <= 64.
+    const multiByteRole = "team-" + "ü".repeat(29);
+    expect(Buffer.byteLength(multiByteRole, "utf8")).toBe(63);
+    const result = mapOIDCClaimRoles([multiByteRole], "team-");
+    expect(result.overflow).toBe(false);
+    expect(result.roles).toEqual([multiByteRole]);
+  });
+
+  test("refuses with overflow when any claim role exceeds 64 bytes in UTF-8 (including 64 non-ASCII characters)", () => {
     const char65 = "team-" + "a".repeat(60);
-    expect(char65.length).toBe(65);
+    expect(Buffer.byteLength(char65, "utf8")).toBe(65);
     const result = mapOIDCClaimRoles(["team-valid", char65], "team-");
     expect(result.overflow).toBe(true);
     expect(result.roles).toEqual([]);
+
+    // 64 non-ASCII characters (e.g. 5 ASCII bytes + 59 2-byte chars = 123 bytes, char length = 64)
+    const nonAscii64Chars = "team-" + "ü".repeat(59);
+    expect(nonAscii64Chars.length).toBe(64);
+    expect(Buffer.byteLength(nonAscii64Chars, "utf8")).toBe(123);
+    const resultMultiByte = mapOIDCClaimRoles([nonAscii64Chars], "team-");
+    expect(resultMultiByte.overflow).toBe(true);
+    expect(resultMultiByte.roles).toEqual([]);
   });
 
   test("non-matching values longer than 64 characters do not trigger overflow", () => {

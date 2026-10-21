@@ -229,7 +229,7 @@ export async function exchangeCode(
 }
 
 const OIDC_MAX_CLAIM_ROLES = 20;
-const OIDC_MAX_CLAIM_ROLE_LENGTH = 64;
+const OIDC_MAX_CLAIM_ROLE_BYTES = 64;
 
 const RESERVED_ROLES = new Set(["*", "admin", "user"]);
 
@@ -287,7 +287,7 @@ export function mapOIDCRole(
  * Extract custom claim roles that start with the configured prefix.
  * Keeps values exactly as the IdP sent them (prefix included), deduplicated and sorted.
  * Reserved names ('*', 'admin', 'user') never become claim roles under any casing.
- * Limits: at most 20 claim roles, each at most 64 characters; exceeding either marks overflow: true.
+ * Limits: at most 20 claim roles, each at most 64 bytes (UTF-8); exceeding either marks overflow: true.
  */
 export function mapOIDCClaimRoles(
   valuesOrClaims: readonly string[] | Record<string, unknown>,
@@ -308,7 +308,7 @@ export function mapOIDCClaimRoles(
       if (RESERVED_ROLES.has(val.toLowerCase())) {
         continue;
       }
-      if (val.length > OIDC_MAX_CLAIM_ROLE_LENGTH) {
+      if (Buffer.byteLength(val, "utf8") > OIDC_MAX_CLAIM_ROLE_BYTES) {
         overflow = true;
       }
       matching.push(val);

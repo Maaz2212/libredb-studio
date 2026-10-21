@@ -87,6 +87,29 @@ describe("auth", () => {
       const token = await signJWT({ role: "user", username: "user" });
       expect(typeof token).toBe("string");
     });
+
+    test("holds token under 4096 bytes with 20 roles of 64 UTF-8 bytes containing multi-byte characters", async () => {
+      const roles: string[] = [];
+      for (let i = 0; i < 20; i++) {
+        const prefix = `team:${i.toString().padStart(2, "0")}:`; // 8 ASCII bytes
+        // 56 bytes of 2-byte characters = 28 characters
+        const role = prefix + "ö".repeat(28); // 8 + 56 = 64 bytes
+        expect(Buffer.byteLength(role, "utf8")).toBe(64);
+        roles.push(role);
+      }
+      const token = await signJWT({
+        role: "user",
+        username: "testuser",
+        idpSubject: "sub-1234567890",
+        idpIssuer: "https://idp.example.com/auth/realms/master",
+        claimRoles: roles,
+      });
+      // The auth-token cookie must remain well under 4096 bytes so browsers do not drop it
+      expect(Buffer.byteLength(token, "utf8")).toBeLessThan(4096);
+      const verified = await verifyJWT(token);
+      expect(verified).not.toBeNull();
+      expect(verified?.claimRoles).toEqual(roles);
+    });
   });
 
   // --------------------------------------------------------------------------

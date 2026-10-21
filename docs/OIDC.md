@@ -425,15 +425,15 @@ When `OIDC_ROLE_PREFIX` is configured (for example, `OIDC_ROLE_PREFIX=team:`):
 3. **Reserved roles**: The names `*`, `admin`, and `user` (case-insensitively, e.g. `team:admin` is fine, but bare `admin`, `USER`, or `*` is not) are reserved and never mapped as custom claim roles.
 4. **Limits & Overflow**:
    - Up to 20 matching claim roles are allowed per user.
-   - Each role name must not exceed 64 characters.
+   - Each role name must not exceed 64 bytes in UTF-8.
    - Matching roles are deduplicated and sorted lexicographically.
-   - If an account carries more than 20 matching roles or any role exceeding 64 characters, sign-in fails immediately with error code `oidc_role_overflow`. No session is created, the audit log records `login_failure` with reason `oidc_role_overflow`, and the user is redirected to `/login?error=oidc_role_overflow` ("Your account carries too many or excessively long role names to sign in. Ask your administrator.").
+   - If an account carries more than 20 matching roles or any role exceeding 64 bytes, sign-in fails immediately with error code `oidc_role_overflow`. No session is created, the audit log records `login_failure` with reason `oidc_role_overflow`, and the user is redirected to `/login?error=oidc_role_overflow` ("Your account has too many roles or a role name is too long. Ask your administrator.").
 5. **Session lifecycle**:
-   - Extracted claim roles are embedded in the encrypted session JWT (`claimRoles`).
+   - Extracted claim roles are embedded in the signed session JWT (`claimRoles`).
    - Claim roles are fixed for the lifetime of the session. When group memberships change in the IdP, the user must sign in again to refresh their roles.
 6. **Seed connection enforcement**:
-   - Seed connections defined with `roles: ["team:analytics", "team:ops"]` will be accessible only to users who hold at least one of those roles (or `admin`, or if the connection permits `*` or `user`).
-   - The `/api/seed/connections` endpoint projects only the roles the caller actually holds (plus `*`), preventing the names of other teams' roles from leaking to unauthorized clients.
+   - Seed connections defined with `roles: ["team:analytics", "team:ops"]` will be accessible only to users who hold at least one of those roles (an administrator sees a team seed only when the seed also lists `admin` or `*`).
+   - The `/api/connections/managed` endpoint projects only the roles the caller actually holds (plus `*`), preventing the names of other teams' roles from leaking to unauthorized clients.
 
 ### Session Identity
 
@@ -1129,7 +1129,7 @@ Input: claims object, prefix string, roleClaim path
    b. Value must start with prefix (case-sensitive check).
    c. Lowercased value must not equal "*", "admin", or "user".
 3. Validate limits:
-   a. If any matching role length > 64 chars → return { roles: [], overflow: true }
+   a. If any matching role byte length > 64 bytes (UTF-8) → return { roles: [], overflow: true }
    b. Deduplicate matching roles.
    c. If deduplicated count > 20 → return { roles: [], overflow: true }
 4. Return { roles: sortedDeduplicatedRoles, overflow: false }
@@ -1222,7 +1222,7 @@ Both OIDC routes redirect to `/login?error=<code>` on failure, and record the sa
 | `oidc_state_invalid` | callback | State decryption failed or state mismatch | Tampered cookie, wrong JWT_SECRET, or CSRF attempt |
 | `oidc_no_claims` | callback | Token exchange returned no claims, or no string `sub` or `iss` | Provider returned invalid/empty ID token |
 | `oidc_no_role` | callback | `mapOIDCRole()` returned null: `OIDC_USER_ROLES` is set and the role claim holds no admin or user role | The account has no role at the provider; no session is created, and the audit record names the account |
-| `oidc_role_overflow` | callback | `mapOIDCClaimRoles()` returned overflow: matching roles exceed 20 or any role exceeds 64 characters | The account carries too many or excessively long roles; no session is created, and the audit record names the account |
+| `oidc_role_overflow` | callback | `mapOIDCClaimRoles()` returned overflow: matching roles exceed 20 or any role exceeds 64 bytes in UTF-8 | The account carries too many or excessively long roles; no session is created, and the audit record names the account |
 | `oidc_session_revoked` | callback | Governance mode only: the subject's latest `revoked_before` is at or after the current second | The control plane ended the account's sessions with a revocation that still applies, such as one dated ahead of Studio's clock; no session is created, and the audit record names the account |
 | `oidc_failed` | login, callback | Any other error after the provider answered | A discovery document that parses but lacks an endpoint, PKCE or state-cookie failure on login; network error, invalid client credentials, etc. on callback |
 
@@ -1235,7 +1235,7 @@ Both OIDC routes redirect to `/login?error=<code>` on failure, and record the sa
 | `oidc_config` | Single sign-on is not configured correctly on this server. Contact your administrator. |
 | `oidc_discovery` | The identity provider could not be reached. Try again later, or contact your administrator if this continues. |
 | `oidc_no_role` | Your account has no role that allows access to LibreDB Studio. Ask your administrator. |
-| `oidc_role_overflow` | Your account carries too many or excessively long role names to sign in. Ask your administrator. |
+| `oidc_role_overflow` | Your account has too many roles or a role name is too long. Ask your administrator. |
 | `oidc_session_revoked` | An administrator has ended your sessions. Try again later, or ask your administrator. |
 | anything else | Authentication failed. Please try again. |
 

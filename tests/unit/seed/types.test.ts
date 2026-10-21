@@ -113,6 +113,13 @@ describe("SeedConnectionSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  it("rejects role exceeding 64 bytes in UTF-8", () => {
+    // 33 2-byte characters = 66 bytes, 33 characters (passes .max(64) characters but fails byte limit)
+    const multiByteRole = "é".repeat(33);
+    const result = SeedConnectionSchema.safeParse({ ...validConn, roles: [multiByteRole] });
+    expect(result.success).toBe(false);
+  });
+
   it("rejects role containing control characters", () => {
     const result = SeedConnectionSchema.safeParse({ ...validConn, roles: ["role\nwith\nnewline"] });
     expect(result.success).toBe(false);

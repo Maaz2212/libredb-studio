@@ -29,6 +29,7 @@ const AllowedRoleSchema = z
   .string()
   .min(1, "Role cannot be empty")
   .max(64, "Role name must not exceed 64 characters")
+  .refine((r) => Buffer.byteLength(r, "utf8") <= 64, "Role name must not exceed 64 bytes in UTF-8")
   .refine((r) => r.trim() === r, "Role name cannot have leading or trailing whitespace")
   .refine((r) => !CONTROL_CHAR_REGEX.test(r), "Role name cannot contain control characters");
 

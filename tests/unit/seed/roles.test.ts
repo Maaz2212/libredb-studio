@@ -71,15 +71,17 @@ describe("seedRolesOf", () => {
     expect(seedRolesOf({ role: "user", claimRoles: ["*", "*star"] })).toEqual(["user", "*star"]);
   });
 
-  test("drops empty strings and strings exceeding 64 characters", () => {
+  test("drops empty strings and strings exceeding 64 bytes in UTF-8", () => {
     process.env.OIDC_ROLE_PREFIX = "t-";
-    const longRole = "t-" + "x".repeat(63); // 65 chars
-    const maxRole = "t-" + "x".repeat(62); // 64 chars
+    const longRole = "t-" + "x".repeat(63); // 65 bytes
+    const maxRole = "t-" + "x".repeat(62); // 64 bytes
+    const multiByteOver = "t-" + "ü".repeat(32); // 2 + 64 = 66 bytes (>64 bytes, 34 chars)
+    const multiByteValid = "t-" + "ü".repeat(31); // 2 + 62 = 64 bytes
     const result = seedRolesOf({
       role: "user",
-      claimRoles: ["", "t-", longRole, maxRole],
+      claimRoles: ["", "t-", longRole, maxRole, multiByteOver, multiByteValid],
     });
-    expect(result).toEqual(["user", "t-", maxRole]);
+    expect(result).toEqual(["user", "t-", maxRole, multiByteValid]);
   });
 
   test("drops non-string or malformed items in claimRoles", () => {
