@@ -11,8 +11,9 @@
  */
 
 import { formatRowCount, formatRowCountTitle } from "@/lib/db/utils/pool-manager";
-import { sampledMark } from "@/lib/db/detailed-object";
+import { displayedColumnType, sampledMark } from "@/lib/db/detailed-object";
 import {
+  Ban,
   ChevronDown,
   ChevronRight,
   Database,
@@ -197,7 +198,7 @@ export function TreeRow({
 }: TreeRowProps) {
   // `null` only for a column row, and computed as a narrowing so a fifth row kind is still a
   // compile error on the lookup rather than an undefined component at runtime.
-  const Icon = row.kind === "column" ? null : ROW_ICONS[row.kind];
+  const Icon = row.kind === "column" || row.kind === "constraint" ? null : ROW_ICONS[row.kind];
   const isPrimaryColumn = row.column?.isPrimary === true;
   const showsTwisty = row.kind === "object" && row.expanded !== undefined && onToggle !== undefined;
   // The trailing slot draws a sentence, the failure or the refusal, and the name then shares the
@@ -221,7 +222,7 @@ export function TreeRow({
       className={`group absolute inset-x-0 flex items-center gap-1.5 ${ROW_PADDING_RIGHT} text-xs ${
         // A column row activates into nothing, and a pointer cursor over a row that does nothing
         // reads as broken. That is also the cursor the flat explorer's column list set.
-        row.kind === "column" ? "cursor-default" : "cursor-pointer"
+        row.kind === "column" || row.kind === "constraint" ? "cursor-default" : "cursor-pointer"
       } select-none outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand ${
         selected ? "bg-muted" : "hover:bg-muted/60"
       }${current ? " font-semibold" : ""}`}
@@ -284,7 +285,11 @@ export function TreeRow({
         </span>
       )}
       {Icon === null ? (
-        isPrimaryColumn ? (
+        row.kind === "constraint" ? (
+          // An EXCLUDE constraint (#1778): the same 14px slot a column's mark sits in, so the
+          // names stay aligned, with the engine's own definition as the tooltip below.
+          <Ban aria-hidden="true" strokeWidth={1.5} className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+        ) : isPrimaryColumn ? (
           // The flat explorer's mark, in its own colour. `aria-hidden` like every icon in this
           // row, with the fact reaching the accessible name through the text twin below: the
           // same shape the status icon uses.
@@ -317,11 +322,14 @@ export function TreeRow({
         </span>
       )}
       {/*
-        The declared type, right-aligned and TRUNCATED AT THE FIRST PAREN, which is what
-        `ColumnList` drew until 0.16.0: `VARCHAR(255)` reads `VARCHAR` and the whole declared
-        type is one hover away, so the parameters never push the column name out. `type` and
-        never `baseType`: that field's own docblock says `type` is "what a person wants to SEE"
-        and what the object browser renders, and `baseType` is what a reader DECIDING prefers.
+        The declared type, right-aligned and TRUNCATED AT THE FIRST PAREN of `type`, which is
+        what `ColumnList` drew until 0.16.0: `VARCHAR(255)` reads `VARCHAR` and the whole
+        declared type is one hover away, so the parameters never push the column name out.
+        The visible text is `type`, never `baseType`: that field's own docblock says `type`
+        is what the object browser renders, and `baseType` is what a reader DECIDING prefers.
+        The tooltip and the accessible name are `displayedColumnType`: `declaredType` where
+        the provider recorded the modifier (`vector(1536)`), and `type` otherwise. Truncating
+        `declaredType` instead would turn `timestamp(3) without time zone` into `timestamp`.
 
         TWO TEXTS, and that is the whole reason this is not one span. The row names itself by
         reference (`aria-labelledby` above), so `title` never reaches the accessible name: it is
@@ -343,15 +351,28 @@ export function TreeRow({
         whose position has no entry in `field_types` to `type: types[index] ?? ""`, and an empty
         span with an empty tooltip in the right-hand slot reads as a rendering bug.
       */}
+      {row.constraint !== undefined && (
+        // The definition is the whole point of the row, so it is readable and not only hoverable:
+        // a screen reader gets it through the `type` slot the row already names itself from.
+        <span
+          id={rowNameId("type", row.id)}
+          data-testid="tree-row-constraint-definition"
+          title={row.constraint.definition}
+          className="ml-auto shrink-0 pl-2 font-mono text-[10px] text-muted-foreground"
+        >
+          <span aria-hidden="true">EXCLUDE</span>
+          <span className="sr-only">{row.constraint.definition}</span>
+        </span>
+      )}
       {row.column !== undefined && row.column.type !== "" && (
         <span
           id={rowNameId("type", row.id)}
           data-testid="tree-row-column-type"
-          title={row.column.type + sampledMark(row.column)}
+          title={displayedColumnType(row.column) + sampledMark(row.column)}
           className="ml-auto min-w-0 pl-2 max-w-[40%] truncate font-mono text-[10px] uppercase text-muted-foreground"
         >
           <span aria-hidden="true">{row.column.type.split("(")[0] + sampledMark(row.column)}</span>
-          <span className="sr-only">{row.column.type + sampledMark(row.column)}</span>
+          <span className="sr-only">{displayedColumnType(row.column) + sampledMark(row.column)}</span>
         </span>
       )}
       {/*

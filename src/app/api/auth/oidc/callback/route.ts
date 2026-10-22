@@ -10,16 +10,8 @@ import {
   oidcLogoutHintCookiePath,
   readOidcLogoutHint,
 } from "@/lib/config/oidc-logout-hint";
-import {
-  getOIDCConfig,
-  discoverProvider,
-  exchangeCode,
-  decryptState,
-  mapOIDCRole,
-  mapOIDCClaimRoles,
-  readRoleClaimValues,
-  getPublicOrigin,
-} from "@/lib/oidc";
+import { getOIDCConfig, discoverProvider, exchangeCode, decryptState, mapOIDCRole, getPublicOrigin } from "@/lib/oidc";
+import { oidcUsername } from "@/lib/oidc-identity";
 import { logger } from "@/lib/logger";
 import { clientAddress } from "@/lib/api/client-address";
 import { emitAuditEvent, type AuditReason } from "@/lib/audit";
@@ -124,7 +116,7 @@ export async function GET(request: Request) {
       oidcConfig.adminRoles,
       oidcConfig.userRoles,
     );
-    const identity = claims.email || claims.preferred_username || claims.sub;
+    const identity = oidcUsername(claims as Record<string, unknown>) ?? claims.sub;
 
     if (role === null) {
       // The account holds none of OIDC_ADMIN_ROLES or OIDC_USER_ROLES, so it gets no session. The

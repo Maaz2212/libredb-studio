@@ -94,6 +94,12 @@ Without a session, or with one that no longer verifies (expired, signed with a r
 The standalone app's browser code reacts to `AUTH_REQUIRED`, and only to it, by sending the tab to `/login?next=<the page it was on>`; signing in again, with a password, a passkey or OIDC, returns there. `next` is honoured only as an app-relative path, judged on the path it resolves to rather than the string as written (so `/..//host` and `/%2e%2e//host`, which resolve to `//host`, are refused): it must stay on this origin, must not resolve to a path starting `//` or to `/login`, holds no backslash or control character, and is at most 1024 UTF-8 bytes. The resolved form is what is used; anything else falls back to the role's landing page. One redirect per ten seconds per tab: a second refusal inside that window stays on the page as an error, so a session the server refuses while its cookie still verifies cannot loop between the editor and `/login`. An application that embeds the published `@libredb/studio` components gets no such redirect: the 401 reaches its own code unchanged, and handling sign-in stays with the host.
 `/api/mcp` is the exception: without a valid bearer token it answers 401 with `WWW-Authenticate`, never a redirect (see the [MCP API](#mcp-api) below).
 
+**An identity provider's access token can stand in for the cookie on API routes, for native clients (opt-in).**
+With `NEXT_PUBLIC_AUTH_PROVIDER=oidc` and `OIDC_BEARER_AUDIENCE` set, a request to `/api/*` may carry `Authorization: Bearer <access token>` instead of the `auth-token` cookie ([OIDC.md](./OIDC.md#bearer-access-tokens-for-native-clients)).
+While the channel is on, a Bearer header decides alone, even next to a valid cookie: a refused token answers `401 { "error": "Invalid access token", "code": "AUTH_REQUIRED" }` with `WWW-Authenticate: Bearer error="invalid_token"`, and a provider that cannot be reached answers `503` with code `IDENTITY_PROVIDER_UNAVAILABLE`.
+Any other scheme is ignored, the routes under `/api/auth/` that sign in never read the header, and with the channel off the header is ignored everywhere outside `/api/mcp`.
+For a bearer session `POST /api/auth/logout` answers `{ "success": true }` with no `redirectUrl` and no cookie, and `POST /api/mcp/token` answers `403`.
+
 **Two routes are session-less without being public: `POST /api/agent/drive` and `/api/mcp`.**
 Neither is on the list above, because a path-shaped exemption would admit anything that can reach the port.
 Each carries a server-minted credential of its own instead, verified by the middleware and again by the handler: the drive callback a single-purpose credential (see the [Agent API](#agent-api) below), and the MCP endpoint a scoped bearer token (see the [MCP API](#mcp-api) below).
@@ -439,6 +445,8 @@ Detailed health check for a specific database connection.
 > a document other people build clients against: the route's failure path is
 > `createErrorResponse` (`src/lib/api/errors.ts`) and it never composes a reading.
 
+A body that is not a JSON object answers `400 { "error": "Invalid request body" }`, as on [`POST /api/db/query`](#post-apidbquery).
+
 ---
 
 #### POST /api/db/query
@@ -502,7 +510,8 @@ A value the etcd provider's cell bound cut sets no `wasLimited`: its encoding ga
 A shorter result under an injected cap has `wasLimited: false`.
 Under that cap, a result of exactly `limit` rows has `wasLimited: false` and `hasMore: false`: the statement that runs asks for `limit + 1` rows, the extra row is never answered, and only its arrival makes `hasMore` and `wasLimited` true (#1440).
 `POST /api/db/transaction` answers a query inside a transaction by the same rule. Because the statement that runs asks for one row more, a `SELECT ... FOR UPDATE` without its own `LIMIT` in a held transaction now locks `limit + 1` rows.
-`options.limit` and `options.offset` must be non-negative integers when sent; anything else is answered `400` before a provider is reached.
+`options.limit` and `options.offset` must be non-negative integers below `Number.MAX_SAFE_INTEGER` (9007199254740991) when sent, which keeps the `limit + 1` above a safe integer too; anything else is answered `400` before a provider is reached.
+`POST /api/db/multi-query` holds a script's `options` to the same rule, with the same `400` and sentence, before it splits anything.
 
 `hasMore` is `wasLimited && rows.length > limit` over the probed statement, with `wasLimited` read from the server's own limiter alone, and both halves matter.
 A bound the provider reported sets `wasLimited` and never `hasMore`, because no `offset` can advance a bound the server did not write.
@@ -555,6 +564,20 @@ and a request that runs somewhere names the database by name in `catalog`, besid
 connection for a statement, transaction or maintenance. Five databases already open and all busy
 answers `503 POOL_EXHAUSTED`.
 
+**A `sql` that is not a string:**
+
+A `sql` that is present but not a string (a number, `0` included, an object, an array, `true` or `false`) answers `400 { "error": "sql must be a string" }` on every connection type, before any provider resolves or any connection opens.
+`POST /api/db/multi-query` and the `query` action of `POST /api/db/transaction` answer it the same way.
+A missing, `null` or empty `sql` keeps its own answer: `400 { "error": "Connection and query are required" }` here and on `POST /api/db/multi-query`, and `400 { "error": "SQL query is required for transaction query" }` on the transaction route.
+
+**A body that is not a JSON object:**
+
+A body that is not JSON, or JSON that is not an object (`null`, an array, a number, a string, a boolean), answers `400 { "error": "Invalid request body" }` before any connection resolves.
+The same answer comes from `POST /api/db/multi-query`, `/api/db/transaction`, `/api/db/cancel`, `/api/db/profile`, `/api/db/health`, `/api/db/pool-stats` and both maintenance routes.
+`POST /api/db/disconnect` and `POST /api/db/test-connection` answer it in their own envelope, `400 { "success": false, "error": "Invalid request body" }`.
+`POST /api/db/monitoring` answers JSON that is not an object the same way, and keeps `400 { "error": "Invalid JSON in request body" }` for text that is not JSON.
+Its `options`, when sent, must be an object as well: anything else (`null`, a number, an array) answers `400 { "error": "options must be an object" }` before any connection resolves.
+
 **A connection type's console text bound:**
 
 A connection type can declare a bound on its statement text in UTF-8 bytes, on its row in `src/lib/db/destructive-commands.ts`.
@@ -564,7 +587,6 @@ The bound is read after the request body is parsed, because the type that select
 | Condition | Status | Body |
 |-----------|--------|------|
 | `sql` is over the declared bound | `413` | `{ "error": "The statement is <n> bytes in UTF-8, over the <limit>-byte limit for this connection type. Shorten it to run it." }`, which never repeats the text |
-| `sql` is not a string | `400` | `{ "error": "sql must be a string" }` |
 
 `POST /api/db/multi-query` refuses every connection whose type declares such a bound with `400 { "error": "This connection type runs one statement per request: send it to POST /api/db/query, because this route would split its text into several requests." }`, before it splits anything.
 Milvus and Qdrant each declare a bound of 1,048,576 bytes and InfluxDB (InfluxQL), Oxia, S3-compatible object storage, Kubernetes and Firestore one of 65,536 bytes each, and no other shipped engine declares one, so neither answer changes anything for a connection of another type.
@@ -1142,6 +1164,9 @@ Without this the value reached the provider's identifier escaper, where it faile
 empty string is not malformed: it reads as a request that named no container, the same way an empty
 `target` reads as the whole-database form.
 
+`target` gets the same check, before any provider is opened and before any audit row is written: a value that is neither absent nor a string answers `{ "error": "\"target\" must be a string naming the object to run against" }` with `400`.
+Without it a number failed in the provider as `identifier.replace is not a function`, answered `500`, and the audit row recorded the serialized value.
+
 A fifth `400` gates what the operation may be *pointed at*. Each provider declares that separately
 (`maintenanceOperationSpecs`, documented per engine under `docs/providers/`), and `target` selects
 which half of the declaration this request is: absent or empty is a whole-database request, a name
@@ -1282,7 +1307,7 @@ Naming fewer kinds brings the search under the bound; a search under it still an
 
 #### POST /api/db/objects/describe
 
-Read the columns, indexes and foreign keys of ONE object.
+Read the columns, indexes, foreign keys and (on PostgreSQL) exclusion constraints of ONE object.
 
 This is the object tree's per-row read: one request when a reader expands an object row, and none
 before that.
@@ -1312,8 +1337,10 @@ How deep a kind nests is a per-kind fact the provider declares (a trigger nests 
 and the provider validates the path against that declaration.
 
 **Response (200 OK):** one `ObjectDetail`, exactly as the provider answered it.
-`ColumnSchema`, `IndexSchema` and `ForeignKeySchema` are defined under
+`ColumnSchema`, `IndexSchema`, `ForeignKeySchema` and `ExclusionConstraintSchema` are defined under
 [DatabaseObject](#databaseobject).
+`exclusionConstraints` is optional: PostgreSQL publishes it when the table has one, and omits the key when it has none;
+engines that never create exclusion constraints omit the key.
 
 ```json
 {
@@ -1323,7 +1350,13 @@ and the provider validates the path against that declaration.
     { "name": "total", "type": "numeric(12,2)", "nullable": true, "isPrimary": false, "defaultValue": "0" }
   ],
   "indexes": [{ "name": "orders_pkey", "columns": ["id"], "unique": true }],
-  "foreignKeys": [{ "columnName": "customer_id", "referencedTable": "customers", "referencedColumn": "id" }]
+  "foreignKeys": [{ "columnName": "customer_id", "referencedTable": "customers", "referencedColumn": "id" }],
+  "exclusionConstraints": [
+    {
+      "name": "reservations_no_overlapping_active",
+      "definition": "EXCLUDE USING gist (table_id WITH =, tsrange(starts_at, ends_at) WITH &&)"
+    }
+  ]
 }
 ```
 
@@ -2452,6 +2485,11 @@ interface ForeignKeySchema {
   columnName: string;      // Local column
   referencedTable: string; // Foreign table
   referencedColumn: string; // Foreign column
+}
+
+interface ExclusionConstraintSchema {
+  name: string;            // Constraint name
+  definition: string;      // As `pg_get_constraintdef` spells it (EXCLUDE USING ...)
 }
 ```
 

@@ -461,7 +461,7 @@ favour not rewriting: rewriting wrongly turns a working statement into a syntax 
 it alone at worst returns more rows than the page size.
 
 Both the detection and the inherited limiter read the statement under **ClickHouse's** grammar, which
-this provider passes down from its own `type` ([`grammar.ts`](../../src/lib/sql/grammar.ts)).
+this provider passes down from its own `type` ([`sql-grammar.ts`](../../src/lib/db/providers/sql/clickhouse/sql-grammar.ts)).
 ClickHouse's syntax reference lists `#` and `#!` beside `--` as single-line comment forms, and the
 shared reader used to guess PostgreSQL's rule instead — a hash followed by `>`, `-` or `#` is an
 operator — so a comment written that way was read as SQL, and an ordinary one at the end of a
@@ -650,7 +650,7 @@ This is a declared boundary, not a default: `endOpenQueryTransaction` is optiona
 ### 3.14 What the SQL INSERT and DDL exports write for composite types
 
 A result reaches the export through JSON, where an `Array` is a JS array, a `Map` an object, an unnamed `Tuple` an array and a named one an object.
-Written as quoted JSON those were `Code: 26 ... Cannot parse quoted string` on replay, so the SQL INSERT export reads the declared type ([§3.9](#39-column-types-are-the-declared-strings-verbatim)) and writes `[1, 2, 3]`, `map('k', 1)` and `tuple(7, ['p', 'q'])`, recursing through the element types, `Nullable` and `LowCardinality` included (#1386, [`typed-literals.ts`](../../src/lib/export/typed-literals.ts)).
+Written as quoted JSON those were `Code: 26 ... Cannot parse quoted string` on replay, so the SQL INSERT export reads the declared type ([§3.9](#39-column-types-are-the-declared-strings-verbatim)) and writes `[1, 2, 3]`, `map('k', 1)` and `tuple(7, ['p', 'q'])`, recursing through the element types, `Nullable` and `LowCardinality` included (#1386, [`clickhouse/typed-literals.ts`](../../src/lib/db/providers/sql/clickhouse/typed-literals.ts)).
 A named tuple's elements are written in the declared order, and a 64-bit integer or a decimal that `output_format_json_quote_64bit_integers` / `output_format_json_quote_decimals` turned into a string is written bare inside a container (a scalar column takes the quoted form as it is).
 
 A composite that does not have its declared shape (a tuple of the wrong length, a scalar where an `Array` belongs) is skipped with a `-- Row N skipped` comment naming the column, and a non-finite word in a `Float` column or inside a `Float` element is written as `nan`, `inf` or `-inf`.
@@ -776,6 +776,18 @@ Redirects are not followed. Every request sets `redirect: "manual"`, and a 3xx a
 `ConnectionError` naming the status and only the origin of its `Location`, since a followed
 redirect would take the Basic credential and the statement to wherever the server pointed.
 
+### Connection string
+
+The scheme shown for ClickHouse is `clickhouse://`, and the parser also accepts `http://` and `https://`.
+Its row in `CONNECTION_STRING` is declared in [`connection-string.ts`](../../src/lib/db/providers/sql/clickhouse/connection-string.ts).
+It has no `readTls`: `clickhouse://` names no transport and leaves the form's SSL mode alone, while for `http(s)://` the scheme is the transport and already decided, `disable` for `http://` and `require` for `https://`.
+It runs no seed load check.
+
+### Execution UI
+
+The rolled-back notice names `COMMIT` as the keyword that keeps an open transaction, and `clickhouse` has no consent deadline, so the agent's consent card shows no deadline chip or sentence for it.
+Its row in `EXECUTION_UI` is declared in [`execution-ui.ts`](../../src/lib/db/providers/sql/clickhouse/execution-ui.ts).
+
 ---
 
 ## 5. Query interface
@@ -859,6 +871,18 @@ An id this provider is not running is refused before anything is sent, so the ca
 used to kill another session's statement by guessing its id.
 
 ---
+
+### 5.5 SQL grammar
+
+How this engine's statement text is read is declared once, in [`src/lib/db/providers/sql/clickhouse/sql-grammar.ts`](../../src/lib/db/providers/sql/clickhouse/sql-grammar.ts), the `clickhouse` row of the SQL grammar registry in `src/lib/db/sql-grammar/`.
+Its grammar is `CLICKHOUSE_GRAMMAR`, the one reading the statement splitter, the row limiter, the confirmation gate and query-event redaction share, so they cannot disagree about where a literal or a comment ends.
+`#` and `#!` open a line comment beside `--`, and `[...]` is an array literal or a subscript that nests, both from the ClickHouse SQL syntax reference (checked 2026-08-05), since ClickHouse is reached over HTTP and has no driver artifact to check them against.
+That `[...]` is not a name quote is corroborated inside this repository: `identifier.ts` quotes this dialect's names with `"..."`.
+Block comments nest, as the same reference states with a nested example.
+`//` is a line comment, the one fact established by probe, on 26.7.1 over HTTP: `SELECT 1 AS a // note; SELECT 999` answers 1 with no error, while two statements are otherwise refused as multi-statements, so the `;` was hidden, and `SELECT 1 AS a // note` followed by `, 2 AS b` on the next line answers two columns, so the run ends at the newline.
+Read as code, `SELECT number FROM numbers(1000) // note` was bounded as `... // note LIMIT 5` and returned 1000 rows while reporting `wasLimited: true`; with the fact carried it is `... LIMIT 5 // note` and returns 5 (both measured).
+`readsSqlText` is `true`: the editor text is SQL, and the provider extends `SQLBaseProvider`.
+Redaction is `sql` with no name quote: a redacted statement keeps its words, and every literal and quoted run becomes `?`.
 
 ## 6. Schema introspection
 
@@ -1545,6 +1569,26 @@ log_queries is off."* The Queries panel's empty state was hardcoded to PostgreSQ
 `pg_stat_statements` advice for every engine (#463), and `system.query_log`
 ([§7](#7-monitoring--health)) is what an operator here can actually act on.
 
+### SQL writing
+
+[`clickhouse/sql-writing.ts`](../../src/lib/db/providers/sql/clickhouse/sql-writing.ts) declares how a generated statement spells a literal, a name and a bind for this engine, and it is this engine's row of `SQL_WRITING` ([`src/lib/db/sql-writing/index.ts`](../../src/lib/db/sql-writing/index.ts)), which the readers in [`src/lib/sql/values.ts`](../../src/lib/sql/values.ts) and [`src/lib/sql/identifier.ts`](../../src/lib/sql/identifier.ts) look up.
+A literal is written by `literalDoubleAndBackslash` and read back by `unquoteDoubleAndBackslash`: the quote is doubled and a backslash escapes, so the backslash is doubled first.
+A name is quoted by `identifierDoubleQuoted`, the SQL standard form: a double-quoted name with an inner double quote doubled.
+There is no placeholder (`placeholder: null`), so a generator quotes the value with `quoteLiteral` instead of emitting a bind.
+This matches what the ClickHouse provider already does when it builds its own literals ([`index.ts`](../../src/lib/db/providers/sql/clickhouse/index.ts)).
+ClickHouse binds named parameters only, and its provider refuses positional ones outright.
+Inline row editing reads a key column's kind through the shared `INSTANT_TYPE_NAMES`, `FLOAT64_TYPE_NAMES` and `EXACT_DECIMAL_TYPE_NAMES` of the module's `inlineEdit`, and binds every edit as typed.
+
+The module's `export` field spells a result export's column types through `ddlTypes`, the standard spelling with `String` for a binary column: ClickHouse has no BLOB, and its byte container is `String`, a byte sequence rather than a text encoding.
+Measured on 26.7.1, the other standard spellings all resolve to a whole type (`TEXT` to `String`, `BIGINT` to `Int64`, `DOUBLE PRECISION` to `Float64`, `TIMESTAMP` to `DateTime`).
+Each name in `standsAlone` was measured, one `CREATE TABLE probe (c <name>)` per name on ClickHouse 26.7.1, read back out of `system.columns`, and is listed only because ClickHouse both accepted it and stored it unnarrowed.
+ClickHouse resolves every character and byte alias it knows to `String`.
+ClickHouse's `decimal` is absent because it is stored as `Decimal(10, 0)`, the MySQL narrowing again, and so is `set`: MySQL's SET is a character type, while ClickHouse accepts the word and stores `UInt64`, the widest silent mistranslation measured.
+A binary cell is written by `binaryUnhex`: measured on 26.7.1, `unhex('0102deadbeef')` into a `String` column reads back as `hex(payload)` = `0102DEADBEEF` with `length(payload)` 6, and `length(unhex(''))` is 0.
+`nonFinite` writes the bare `nan`, `inf` and `-inf`, which ClickHouse 26.9.18.11 read back into `Float64` and `Float32` (2026-10-14).
+`typedLiteral` writes arrays, maps, tuples and the other cells whose quoted JSON form ClickHouse refuses, from the engine's own [`clickhouse/typed-literals.ts`](../../src/lib/db/providers/sql/clickhouse/typed-literals.ts).
+`NO_BARE_SPELLING` completes it.
+
 ---
 
 ## 10. Error handling
@@ -1768,6 +1812,25 @@ under a `queryId` ([§5.4](#54-cancellation)); the transaction routes do not app
   `postgres.ts` carries for schema-qualified names; removing it means giving the object shape structured
   segments instead of one string, which is a cross-provider change rather than a ClickHouse one.
   Dotted database names are vanishingly rare in practice.
+
+---
+
+## Migration DDL
+
+[`CLICKHOUSE_MIGRATION_DDL`](../../src/lib/db/providers/sql/clickhouse/migration-ddl.ts) is what the schema-diff migration generator writes for `clickhouse`, read through `migrationDdlFor` in `src/lib/db/migration-ddl/`.
+ClickHouse's transaction support is experimental and setting-gated, so `transactionWrapper` is `null` (#284).
+It has no foreign-key constraint, and its index changes are a comment, because the diff records column names and uniqueness, not the index kind, expression or granularity.
+A default whose value starts with `MATERIALIZED`, `ALIAS` or `EPHEMERAL` (`CLICKHOUSE_DEFAULT_KINDS`) already names its own clause and is written without `DEFAULT` in front of it.
+Live-probed on `clickhouse-server:26.7.1.1315`: `MODIFY COLUMN "y" Int32 DEFAULT MATERIALIZED toYear(d)` is a syntax error (code 62), while `MODIFY COLUMN "y" Int32 MATERIALIZED toYear(d)` is accepted.
+A dropped default is written as `REMOVE <kind>`, because omitting the clause leaves the old default in place; `REMOVE` takes `DEFAULT`, `MATERIALIZED` or `ALIAS` only (`CLICKHOUSE_REMOVABLE_KINDS`), `REMOVE EPHEMERAL` is code 62, and `REMOVE DEFAULT` on a column with no default is code 36.
+Nullability is part of the type (`Nullable(T)`), so a modified column restates its declared type and there is no `SET NOT NULL`.
+The fields it takes unchanged from `src/lib/db/migration-ddl/shared.ts` are `standardAddColumn`, `standardDropColumn`, `standardDropTable` and `standardPrimaryKey`.
+
+Every refusal reason it can print, verbatim:
+
+- "ClickHouse: Cannot generate index DDL. The diff does not record the index kind, expression or granularity; write the index change by hand."
+- "The engine has no foreign-key constraint."
+- "REMOVE accepts DEFAULT, MATERIALIZED or ALIAS only; recreate the column."
 
 ---
 
