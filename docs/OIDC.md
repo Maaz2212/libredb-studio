@@ -430,10 +430,10 @@ When `OIDC_ROLE_PREFIX` is configured (for example, `OIDC_ROLE_PREFIX=team:`):
    - Up to 20 matching claim roles are allowed per user.
    - Each role name must not exceed 64 bytes in UTF-8.
    - Matching roles are deduplicated and sorted lexicographically.
-   - If an account carries more than 20 matching roles or any role exceeding 64 bytes, sign-in fails immediately with error code `oidc_role_overflow`. No session is created, the audit log records `login_failure` with reason `oidc_role_overflow`, and the user is redirected to `/login?error=oidc_role_overflow` ("Your account has too many roles or a role name is too long. Ask your administrator.").
+   - If an account carries more than 20 matching roles or any role exceeding 64 bytes, sign-in fails immediately with error code `oidc_role_overflow` (for all accounts, admins included). No session is created, the audit log records `login_failure` with reason `oidc_role_overflow`, and the user is redirected to `/login?error=oidc_role_overflow` ("Your account has too many roles or a role name is too long. Ask your administrator.").
 5. **Session lifecycle**:
    - Extracted claim roles are embedded in the signed session JWT (`claimRoles`).
-   - Claim roles are fixed for the lifetime of the session. When group memberships change in the IdP, the user must sign in again to refresh their roles.
+   - Claim roles are fixed for the lifetime of the session (and any MCP token created from it). When group memberships change in the IdP, the user must sign in again to refresh their roles; for an immediate cut, an administrator can revoke the account's sessions ([Governance mode](#governance-mode)).
 6. **Seed connection enforcement**:
    - Seed connections defined with `roles: ["team:analytics", "team:ops"]` will be accessible only to users who hold at least one of those roles (an administrator sees a team seed only when the seed also lists `admin` or `*`).
    - The `/api/connections/managed` endpoint projects only the roles the caller actually holds (plus `*`), preventing the names of other teams' roles from leaking to unauthorized clients.
