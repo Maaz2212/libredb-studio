@@ -10,7 +10,16 @@ import {
   oidcLogoutHintCookiePath,
   readOidcLogoutHint,
 } from "@/lib/config/oidc-logout-hint";
-import { getOIDCConfig, discoverProvider, exchangeCode, decryptState, mapOIDCRole, getPublicOrigin } from "@/lib/oidc";
+import {
+  getOIDCConfig,
+  discoverProvider,
+  exchangeCode,
+  decryptState,
+  mapOIDCRole,
+  mapOIDCClaimRoles,
+  readRoleClaimValues,
+  getPublicOrigin,
+} from "@/lib/oidc";
 import { oidcUsername } from "@/lib/oidc-identity";
 import { logger } from "@/lib/logger";
 import { clientAddress } from "@/lib/api/client-address";

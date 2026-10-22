@@ -41,6 +41,11 @@ export interface UserPayload {
    * a cookie. A route that would write the session cookie or mint a credential from the session reads it.
    */
   channel?: "bearer";
+  /**
+   * Custom roles extracted from OIDC_ROLE_CLAIM matching OIDC_ROLE_PREFIX. Set only by the
+   * OIDC callback and only when non-empty.
+   */
+  claimRoles?: string[];
 }
 
 export async function signJWT(payload: UserPayload) {
