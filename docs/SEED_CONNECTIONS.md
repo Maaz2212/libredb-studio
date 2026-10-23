@@ -669,11 +669,11 @@ Each connection has a `roles` field that controls which users can see it:
 |--------|-------------|
 | `roles: ["*"]` | All authenticated users |
 | `roles: ["admin"]` | Admin users only |
-| `roles: ["user"]` | Regular users only |
+| `roles: ["user"]` | Regular users only (admins do not see this seed unless `admin` or `*` is also listed) |
 | `roles: ["admin", "user"]` | Both (same as `["*"]`) |
 | `roles: ["team:analytics"]` | Users holding the custom role `team:analytics` (an admin sees it only if the seed lists `admin` or `*`) |
 
-Roles are matched against the JWT session's `role` field as well as any custom `claimRoles` extracted from the OIDC role claim. The roles are extracted server-side from the authenticated JWT session — never from client input.
+Roles are matched against the JWT session's `role` field as well as any custom `claimRoles` extracted from the OIDC role claim. The roles are extracted server-side from the authenticated JWT session — never from client input. Studio enforces exact role matching without an implicit admin bypass: operators who expect administrators to see every connection should list `["user", "admin"]` or `["*"]`.
 
 ### Custom Seed Roles (OIDC)
 
