@@ -11,7 +11,7 @@ import { MCP_PATH } from "./config";
  *
  * A registry that cannot be read refuses the token rather than trusting it.
  */
-export async function mcpTokenOwnerAllowed(authInfo: AuthInfo): Promise<boolean> {
+export async function mcpTokenOwnerAllowed(authInfo: AuthInfo): Promise<boolean | "store_unavailable"> {
   const { username, role, sessionVersion } = authInfo.extra ?? {};
   if (typeof username !== "string" || (role !== "admin" && role !== "user")) return false;
   try {
@@ -22,6 +22,6 @@ export async function mcpTokenOwnerAllowed(authInfo: AuthInfo): Promise<boolean>
     });
   } catch (error) {
     logger.error("Could not read the account registry, refusing the MCP token", error, { route: MCP_PATH });
-    return false;
+    return "store_unavailable";
   }
 }

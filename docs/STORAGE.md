@@ -627,6 +627,13 @@ curl -b cookies.txt http://localhost:3000/api/storage
 2. Make sure the response shows `"serverMode": true`
 3. Check browser console for sync errors (look for `[StorageSync]` prefixed logs)
 
+### Store Outage: 503 "ACCOUNT_STORE_UNAVAILABLE"
+
+When `STORAGE_PROVIDER=sqlite` or `postgres`, each authenticated request checks that the session's account remains active and permitted in the account store. If the store suffers an outage (e.g. PostgreSQL is unreachable or SQLite is locked):
+- Studio returns HTTP 503 with `{ "error": "Account store unavailable", "code": "ACCOUNT_STORE_UNAVAILABLE" }`.
+- Crucially, the browser's session cookie is **preserved** rather than deleted, and no logout is performed (#1942).
+- Once the store recovers, client requests resume immediately without requiring the user to sign in again.
+
 ### SQLite: "SQLITE_CANTOPEN"
 
 - The directory in `STORAGE_SQLITE_PATH` must be writable by the app process
