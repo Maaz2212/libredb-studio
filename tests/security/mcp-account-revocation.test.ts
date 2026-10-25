@@ -153,7 +153,7 @@ describe("an MCP token for a stored account", () => {
       const res = await listTools(token);
       expect(res.status).toBe(503);
       const body = (await res.json()) as { error: string; code?: string };
-      expect(body.error).toBe("The account store is unavailable. Try again.");
+      expect(body.error).toBe("Account store unavailable");
       expect(body.code).toBe(ApiErrorCode.ACCOUNT_STORE_UNAVAILABLE);
       expect(errors.mock.calls.flat().map(String).join("\n")).toContain("database is locked");
     } finally {

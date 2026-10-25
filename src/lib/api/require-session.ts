@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import * as auth from "@/lib/auth";
-import type { UserPayload, SessionReading } from "@/lib/auth";
+import { readSession, type UserPayload } from "@/lib/auth";
 import { ACCOUNT_STORE_UNAVAILABLE_BODY } from "@/lib/api/account-store-error";
 import { clientAddress } from "@/lib/api/client-address";
 import { createErrorResponse } from "@/lib/api/errors";
@@ -39,14 +38,7 @@ export async function guardRoute(opts: {
   request: Request;
 }): Promise<GuardResult> {
   const ip = clientAddress(opts.request);
-  let reading: SessionReading =
-    typeof auth.readSession === "function" ? await auth.readSession() : { kind: "anonymous" };
-  if (reading.kind === "anonymous" && typeof auth.getSession === "function") {
-    const fallback = await auth.getSession();
-    if (fallback) {
-      reading = { kind: "authenticated", session: fallback };
-    }
-  }
+  const reading = await readSession();
 
   if (reading.kind === "store_unavailable") {
     return {

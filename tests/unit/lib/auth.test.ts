@@ -363,11 +363,13 @@ describe("auth", () => {
       });
     });
 
-    test("handles headers throwing outside request scope cleanly", async () => {
+    test("propagates headers() errors — readSession() is only called from route handlers", async () => {
+      // The defensive try/catch around headers() was removed (reviewer item 2): every caller is
+      // a route handler, and swallowing an out-of-scope failure silently as anonymous is wrong.
+      // Route handlers can rely on Next.js's own error boundary instead.
       mockHeadersThrow = new Error("headers was called outside a request scope");
       try {
-        const reading = await readSession();
-        expect(reading.kind).toBe("anonymous");
+        await expect(readSession()).rejects.toThrow("headers was called outside a request scope");
       } finally {
         mockHeadersThrow = null;
       }

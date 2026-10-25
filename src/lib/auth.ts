@@ -80,15 +80,11 @@ export type SessionReading =
 export async function readSession(): Promise<SessionReading> {
   // A Bearer header decides alone while the channel is on, even next to a valid cookie, and with it on or off the
   // cookie is never touched here. Absent, the cookie decides as it always did.
-  let authHeader: string | null = null;
-  try {
-    authHeader = (await headers()).get("authorization");
-  } catch {
-    // No request scope (headers() throws outside a server request).
-  }
+  const headerList = await headers();
+  const authHeader = headerList.get("authorization");
   const bearer = await authenticateBearer(authHeader);
   if (bearer.kind === "fault") {
-    logger.error("Could not verify a bearer access token, refusing the session", bearer.error, { route: "auth" });
+    logger.error("Could not verify a bearer access token; refusing", bearer.error, { route: "auth" });
     return { kind: "anonymous" };
   }
   if (bearer.kind === "denied") return { kind: "anonymous" };
@@ -98,18 +94,13 @@ export async function readSession(): Promise<SessionReading> {
       const allowed = await storedAccountAllows(bearer.session);
       return allowed ? { kind: "authenticated", session: bearer.session } : { kind: "anonymous" };
     } catch (error) {
-      logger.error("Could not read the account registry, refusing the session", error, { route: "auth" });
+      logger.error("Could not read the account registry, store unavailable", error, { route: "auth" });
       return { kind: "store_unavailable", error };
     }
   }
 
-  let token: string | undefined;
-  try {
-    const cookieStore = await cookies();
-    token = cookieStore.get("auth-token")?.value;
-  } catch {
-    // No request scope (cookies() throws outside a server request).
-  }
+  const cookieStore = await cookies();
+  const token = cookieStore.get("auth-token")?.value;
   if (!token) return { kind: "anonymous" };
   const session = await verifyJWT(token);
   if (!session) return { kind: "anonymous" };
@@ -121,17 +112,13 @@ export async function readSession(): Promise<SessionReading> {
   try {
     allowed = await storedAccountAllows(session);
   } catch (error) {
-    logger.error("Could not read the account registry, refusing the session", error, { route: "auth" });
+    logger.error("Could not read the account registry, store unavailable", error, { route: "auth" });
     return { kind: "store_unavailable", error };
   }
   if (allowed) return { kind: "authenticated", session };
   // The proxy verifies only the signature, so a refused cookie would keep sending /login back to
   // the editor. Clearing it here, on the route's response, lets the next navigation reach login.
-  try {
-    await logout();
-  } catch {
-    // No request scope
-  }
+  await logout();
   return { kind: "anonymous" };
 }
 
@@ -258,10 +245,6 @@ export async function login(
 }
 
 export async function logout() {
-  try {
-    const cookieStore = await cookies();
-    cookieStore.delete({ name: "auth-token", path: getBasePath() || "/" });
-  } catch {
-    // No request scope
-  }
+  const cookieStore = await cookies();
+  cookieStore.delete({ name: "auth-token", path: getBasePath() || "/" });
 }

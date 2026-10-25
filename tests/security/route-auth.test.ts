@@ -27,10 +27,6 @@ mock.module("@/lib/auth", () => ({
   ...realAuth,
   getSession: mockGetSession,
   readSession: mockReadSession,
-  signJWT: mock(async () => "mock-token"),
-  verifyJWT: mock(async () => null),
-  login: mock(async () => {}),
-  logout: mock(async () => {}),
 }));
 
 // ─── Mock @/lib/llm so a bypassed guard can never be mistaken for a working one ──
