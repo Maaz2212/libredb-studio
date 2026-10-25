@@ -1,6 +1,6 @@
 import { ApiErrorCode } from "@/lib/api/error-codes";
 
-export const ACCOUNT_STORE_UNAVAILABLE_MESSAGE = "Account store unavailable";
+const ACCOUNT_STORE_UNAVAILABLE_MESSAGE = "Account store unavailable";
 
 export const ACCOUNT_STORE_UNAVAILABLE_BODY = {
   error: ACCOUNT_STORE_UNAVAILABLE_MESSAGE,
