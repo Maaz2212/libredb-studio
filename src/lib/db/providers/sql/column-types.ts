@@ -87,11 +87,21 @@ export function declaredColumnTypes(
  * result column's declared type), and the `information_schema` domains, whose OIDs are
  * assigned per database at initdb and so are NOT stable.
  *
- * A user-defined OID (>= 16384: an enum, a composite, an extension type) is absent
- * rather than wrong. Measured by running `SELECT *` through `pg` over every table and
- * view in dvdrental's `public` schema - 128 result columns, the largest real database
- * on hand - 125 are named, none wrongly, and 3 are absent: `film.rating` and the two
- * views over it, all three the enum `mpaa_rating`. Arrays are named (`text[]`).
+ * A user-defined OID (>= 16384: an enum, a composite, an extension type such as
+ * pgvector's vector/halfvec/sparsevec) is named from a per-pool map populated from
+ * `pg_catalog.pg_type` (format_type). The map is populated at connect on the borrowed
+ * probe client outside the read-only profile, ensuring initial queries over the API or MCP
+ * get type labels before the explorer lists containers. It is refreshed in `listContainers()`
+ * when the explorer navigates or refreshes containers, picking up any newly created types
+ * without adding extra round trips to queries.
+ *
+ * Under the agent's read-only profile (`readOnlyProfile`), the catalog read is skipped
+ * entirely both at connect and during queries, preserving the strict invariant that every
+ * statement inside `queryReadOnly` runs inside a single `BEGIN READ ONLY` envelope; user-defined
+ * types remain unnamed in that profile.
+ *
+ * Built-in types always resolve from the static table above and can never be overridden by
+ * the map. An OID present in neither stays absent rather than guessing.
  *
  * A DOMAIN does not even reach that case: measured, `film.release_year` is the domain
  * `year` in `pg_attribute` (OID 16516) and `pg` reports it as OID 23, its base type -
@@ -249,8 +259,8 @@ const PG_BUILTIN_TYPE_NAMES: Record<number, string | undefined> = {
   6157: "int8multirange[]",
 };
 
-export function postgresColumnType(dataTypeID: number): string | undefined {
-  return PG_BUILTIN_TYPE_NAMES[dataTypeID];
+export function postgresColumnType(dataTypeID: number, userTypes?: ReadonlyMap<number, string>): string | undefined {
+  return PG_BUILTIN_TYPE_NAMES[dataTypeID] ?? userTypes?.get(dataTypeID);
 }
 
 /**
@@ -407,11 +417,14 @@ export interface PgFieldMetadata {
 }
 
 /** The declared types of a `pg` result, ready to spread into a `QueryResult`. */
-export function postgresColumnTypes(fields: readonly PgFieldMetadata[] | undefined): Pick<QueryResult, "columnTypes"> {
+export function postgresColumnTypes(
+  fields: readonly PgFieldMetadata[] | undefined,
+  userTypes?: ReadonlyMap<number, string>,
+): Pick<QueryResult, "columnTypes"> {
   return declaredColumnTypes(
     (fields ?? []).map((field) => [
       field.name,
-      field.dataTypeID === undefined ? undefined : postgresColumnType(field.dataTypeID),
+      field.dataTypeID === undefined ? undefined : postgresColumnType(field.dataTypeID, userTypes),
     ]),
   );
 }

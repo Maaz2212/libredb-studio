@@ -1758,22 +1758,34 @@ So the OID is resolved to a name and reported in `QueryResult.columnTypes`, keye
 `fields` ([column-types.ts](../../src/lib/db/providers/sql/column-types.ts)). All three execution
 paths do it: `query()`, `queryInTransaction()` and the agent's `queryReadOnly()`.
 
-- **A static table, not a catalog lookup.** The built-in OIDs are compiled into the server
-  (`pg_type.dat`) and are never reused, so a generated table is correct on every version — a newer
-  server can only add OIDs it does not know. A lookup would also need a round trip that three of the
-  four call sites cannot make: `query()` releases its pooled client before the result is assembled,
-  and `queryReadOnly()` promises EXACTLY ONE statement inside `BEGIN READ ONLY` (§12) — a catalog
-  `SELECT` smuggled in beside it would break that promise for a column label.
+- **A static table for built-ins, with a per-pool map for user-defined types.** The built-in OIDs are
+  compiled into the server (`pg_type.dat`) and are never reused, so a generated static table is correct
+  on every version — a newer server can only add OIDs it does not know. Built-in types always resolve from
+  this table and cannot be overridden. User-defined OIDs (>= 16384: an enum, a composite, or an
+  extension type like pgvector's `vector`, `halfvec`, `sparsevec`) are populated into an in-memory
+  per-pool map at connect on the borrowed probe client (outside the read-only profile), ensuring initial
+  queries via API or MCP get labels before the explorer lists containers, and refreshed whenever the schema
+  containers are listed or refreshed (`listContainers()`). Running user queries performs zero extra catalog round trips.
+- **The agent read-only profile never names user types.** To preserve the strict invariant that every
+  statement inside `queryReadOnly` runs exclusively inside a single `BEGIN READ ONLY` envelope without
+  ambient catalog reads at connect or runtime, the read-only profile skips `pg_type` reads entirely;
+  user-defined types remain unnamed on this profile.
 - **`format_type` supplies the spelling**, because it is what PostgreSQL itself prints: OID 20 is
-  `bigint`, not the internal `int8` that `pg`'s own `types.builtins` is keyed by. The table's
-  generating query is in the module's header comment.
-- **A user-defined OID (>= 16384) is absent rather than wrong.** An enum, a composite or an
-  extension type gets its OID per database, so no static table can name it. Measured by running
-  `SELECT *` through `pg` over every table and view in dvdrental — 128 result columns — 125 are
-  named, 0 wrongly, and 3 are absent: the `mpaa_rating` enum in `film` and the two views over it.
-  Arrays are named (`text[]`). A **domain** does not reach that case at all: `film.release_year` is
-  the domain `year` (OID 16516) in `pg_attribute`, and `pg` reports the column as OID 23 — its base
-  type — so the result says `integer`, which is what the wire carries.
+  `bigint`, not the internal `int8` that `pg`'s own `types.builtins` is keyed by. For user-defined
+  and extension types, the name is read via `format_type(t.oid, NULL)`:
+  ```sql
+  SELECT t.oid, pg_catalog.format_type(t.oid, NULL) AS name
+  FROM pg_catalog.pg_type t
+  WHERE t.oid >= 16384 AND t.typtype IN ('b', 'e', 'c', 'r', 'm')
+  ```
+- **A newly created type stays absent until refreshed.** A type created after the map was filled
+  stays absent (never wrong) until the next container/schema refresh, and then shows up.
+  An OID in neither the static table nor the map stays absent. A **domain** does not reach that case
+  at all: `film.release_year` is the domain `year` (OID 16516) in `pg_attribute`, and `pg` reports
+  the column as OID 23 — its base type — so the result says `integer`, which is what the wire carries.
+- **Catalog failure degrades gracefully.** On wire-compatible engines that lack or restrict this catalog
+  query, the read failure is logged as a warning rather than swallowed, and user queries continue
+  unimpeded with user-defined types omitted.
 
 | `dataTypeID` | reported as |
 |---|---|
@@ -1786,7 +1798,7 @@ paths do it: `query()`, `queryInTransaction()` and the agent's `queryReadOnly()`
 | 114 / 3802 | `json` / `jsonb` |
 | 2950 / 17 | `uuid` / `bytea` |
 | 1009 | `text[]` |
-| >= 16384 | *absent* |
+| >= 16384 | `vector`, `halfvec`, `sparsevec`, enum or composite name (*absent* until map is refreshed or if catalog unavailable) |
 
 The names are the base type's, without the type modifier: `character varying`, not
 `character varying(40)`. The modifier is not on the wire in a form worth reconstructing. This is

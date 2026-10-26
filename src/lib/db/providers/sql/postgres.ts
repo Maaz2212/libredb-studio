@@ -100,6 +100,7 @@ import { formatBytes } from "../../utils/pool-manager";
 import { measuredNullableAggregate } from "../../utils/measured-aggregate";
 import { CatalogSessions } from "../../utils/catalog-sessions";
 import { CACHE_HIT_RATIO_UNAVAILABLE, formatCacheHitRatio, measuredNumber } from "@/lib/monitoring-cache-ratio";
+import { logger } from "@/lib/logger";
 
 /**
  * PostgreSQL's identity for the shared container-path renderer.
@@ -320,13 +321,16 @@ function arrayRowsOf(text: string): QueryConfig {
  * One answer as a result set: its columns named by `uniqueFieldNames`, and each row keyed by those
  * names by position (`keyRowsByPosition`, which raises a row whose value count is not the column count).
  */
-function pgResultSet(answer: PgArrayAnswer, sql: string): QueryResultSet {
+function pgResultSet(answer: PgArrayAnswer, sql: string, userTypes?: ReadonlyMap<number, string>): QueryResultSet {
   const declared = answer.fields ?? [];
   const fields = uniqueFieldNames(declared.map((field) => field.name));
   return {
     rows: keyRowsByPosition(fields, answer.rows, "postgres", sql),
     fields,
-    ...postgresColumnTypes(declared.map((field, index) => ({ name: fields[index], dataTypeID: field.dataTypeID }))),
+    ...postgresColumnTypes(
+      declared.map((field, index) => ({ name: fields[index], dataTypeID: field.dataTypeID })),
+      userTypes,
+    ),
   };
 }
 
@@ -354,10 +358,11 @@ function pgRowCount(answer: PgArrayAnswer): number {
 function pgQueryResult(
   answer: PgArrayAnswer | PgArrayAnswer[],
   sql: string,
+  userTypes?: ReadonlyMap<number, string>,
 ): Pick<QueryResult, "rows" | "fields" | "columnTypes" | "rowCount" | "resultSets"> {
-  if (!Array.isArray(answer)) return { ...pgResultSet(answer, sql), rowCount: pgRowCount(answer) };
+  if (!Array.isArray(answer)) return { ...pgResultSet(answer, sql, userTypes), rowCount: pgRowCount(answer) };
   const producing = answer.filter((one) => (one.fields ?? []).length > 0);
-  const sets = producing.map((one) => pgResultSet(one, sql));
+  const sets = producing.map((one) => pgResultSet(one, sql, userTypes));
   const [first] = sets;
   return {
     ...(first ?? { rows: [], fields: [] }),
@@ -1138,6 +1143,18 @@ const LIST_TRIGGERS_SQL = `
         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = $1 AND NOT t.tgisinternal
           AND ${extensionMemberExclusion("c.oid", "pg_class")}`;
+
+/**
+ * Reads user-defined and extension type names (vector, halfvec, sparsevec, enums,
+ * composites, ranges, multiranges) outside any user statement.
+ *
+ * `format_type(t.oid, NULL)` provides the canonical name without modifiers.
+ * OIDs < 16384 are built-in types and are always resolved from the static table.
+ */
+const USER_DEFINED_TYPES_SQL = `
+        SELECT t.oid, pg_catalog.format_type(t.oid, NULL) AS name
+        FROM pg_catalog.pg_type t
+        WHERE t.oid >= 16384 AND t.typtype IN ('b', 'e', 'c', 'r', 'm')`;
 
 // ============================================================================
 // Object source (#789 Phase 2)
@@ -2912,6 +2929,12 @@ export class PostgresProvider extends SQLBaseProvider {
   /** The per-database providers a server-level connection runs requests on (#1530). */
   private readonly catalogSessions: CatalogSessions<PostgresProvider>;
 
+  /**
+   * User-defined and extension type names (vector, halfvec, sparsevec, enums, composites)
+   * keyed by OID (>= 16384). Populated at connect and refreshed on schema refresh.
+   */
+  private readonly userDefinedTypes = new Map<number, string>();
+
   constructor(config: DatabaseConnection, options: ProviderOptions = {}, execution: ProviderExecutionContext = {}) {
     super(config, options);
     // Server-injected only (see ProviderExecutionContext): the editor path
@@ -3158,6 +3181,7 @@ export class PostgresProvider extends SQLBaseProvider {
           // session is already open, so it is turned on here.
           this.implicitFlushIsOff = await probeImplicitFlushOff(client);
           if (this.implicitFlushIsOff) await client.query(IMPLICIT_FLUSH_ON_SQL);
+          await this.refreshUserDefinedTypes(client);
           const probe = await this.probeMaintenance(client);
           this.measuredMaintenance = probe.measured;
           connectClientFault = probe.discard;
@@ -3464,7 +3488,7 @@ export class PostgresProvider extends SQLBaseProvider {
       });
 
       return {
-        ...pgQueryResult(result.res, sql),
+        ...pgQueryResult(result.res, sql, this.userDefinedTypes),
         executionTime,
         ...noticesAsWarnings(result.notices),
       };
@@ -3609,7 +3633,7 @@ export class PostgresProvider extends SQLBaseProvider {
 
       // One statement on the extended protocol is one answer, never a list of them. The budgets are
       // measured on the keyed rows, which are what the caller receives.
-      const result = pgQueryResult(answered as unknown as PgArrayAnswer, sql);
+      const result = pgQueryResult(answered as unknown as PgArrayAnswer, sql, this.userDefinedTypes);
       if (result.rows.length > budget.maxResultRows) {
         throw new QueryError(
           `Read-only execution exceeded the row budget: ${result.rows.length} rows > ${budget.maxResultRows} allowed`,
@@ -3921,7 +3945,7 @@ export class PostgresProvider extends SQLBaseProvider {
       });
 
       return {
-        ...pgQueryResult(result.res, sql),
+        ...pgQueryResult(result.res, sql, this.userDefinedTypes),
         executionTime,
         ...noticesAsWarnings(result.notices),
       };
@@ -3997,6 +4021,9 @@ export class PostgresProvider extends SQLBaseProvider {
 
     const client = await this.pool!.connect();
     try {
+      if (!this.readOnlyProfile) {
+        await this.refreshUserDefinedTypes(client);
+      }
       const result = await this.queryWithMaterializedFallback(client, CONTAINERS_SQL);
       return result.rows.map((row: ContainerRow) => ({
         path: [row.name],
@@ -4006,6 +4033,31 @@ export class PostgresProvider extends SQLBaseProvider {
       }));
     } finally {
       client.release();
+    }
+  }
+
+  /**
+   * Refreshes the in-memory user-defined types map from pg_catalog.pg_type.
+   *
+   * Skipped under the read-only profile to maintain the zero-extra-statement invariant.
+   * On PostgreSQL-wire compatible engines that do not support this catalog query or format_type,
+   * any error is logged as a warning rather than swallowed, and does not fail the caller.
+   */
+  private async refreshUserDefinedTypes(client: PoolClient): Promise<void> {
+    try {
+      const res = await client.query<{ oid: number | string; name: string | null }>(USER_DEFINED_TYPES_SQL);
+      this.userDefinedTypes.clear();
+      for (const row of res.rows) {
+        const oid = Number(row.oid);
+        if (!Number.isNaN(oid) && row.name) {
+          this.userDefinedTypes.set(oid, row.name);
+        }
+      }
+    } catch (error) {
+      logger.warn("Failed to load user-defined types from pg_catalog.pg_type", {
+        provider: "postgres",
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
