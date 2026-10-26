@@ -636,7 +636,7 @@ When `STORAGE_PROVIDER=sqlite` or `postgres`, each authenticated request checks 
   2. `GET /api/auth/me` (`src/app/api/auth/me/route.ts`) — the browser polls this to establish session state.
   3. `/api/mcp` (`src/app/api/mcp/route.ts` via `mcpTokenOwnerAllowed`) — the MCP bearer-token route.
 
-- **Other routes that call `getSession()` directly** still receive `null` under its non-throwing contract and answer `401`. These are routes that bypass `guardRoute` and check the session themselves (e.g. `POST /api/db/health`).
+- **Other routes that call `getSession()` directly** still receive `null` under its non-throwing contract and answer `401`. These are routes that bypass `guardRoute` and check the session themselves (e.g. `GET /api/connections/managed`, which the editor calls on load).
 
 - The browser's session cookie is **preserved** throughout. Verified with a valid cookie against a mocked storage outage: the browser did not loop to `/login` because `/api/auth/me` answered 503, not 401, so the client-side `AUTH_REQUIRED` redirect guard did not fire (#1942).
 
