@@ -36,6 +36,7 @@ import { CACHE_HIT_RATIO_UNAVAILABLE } from "@/lib/monitoring-cache-ratio";
 import { assertObjectSurface } from "../../helpers/object-surface-conformance";
 import { renderSegments, userPositionOf } from "@/lib/db/object-edit";
 import { POSTGRES_CREATE_TABLE } from "@/lib/db/providers/sql/postgres-create-table";
+import { logger } from "@/lib/logger";
 
 // ============================================================================
 // Mock pg BEFORE importing the provider
@@ -4615,17 +4616,52 @@ describe("PostgresProvider", () => {
       await editor.connect();
 
       // The EXPLAIN probe, the routine-guard probe (#1437), the implicit-flush probe's quiet form
-      // (#1399), which this server answers and so is the only one of its two, then the maintenance
-      // probe's block (#1387). This fixture records what reaches the engine mock, and the statements
-      // inside the aborted block are refused before it.
+      // (#1399), which this server answers and so is the only one of its two, the user-defined types probe
+      // (#1859), then the maintenance probe's block (#1387). This fixture records what reaches the engine mock,
+      // and the statements inside the aborted block are refused before it.
       expect(fresh.statements.map((s) => s.text)).toEqual([
         "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) SELECT 1",
         "DO $probe$BEGIN PERFORM p.xmin FROM pg_catalog.pg_proc p WHERE false; END$probe$",
         "SELECT current_setting('rw_implicit_flush', true) AS value",
+        "SELECT t.oid, pg_catalog.format_type(t.oid, NULL) AS name\n        FROM pg_catalog.pg_type t\n        WHERE t.oid >= 16384 AND t.typtype IN ('b', 'e', 'c', 'r', 'm')",
         "BEGIN",
         "ROLLBACK",
       ]);
       await editor.disconnect();
+    });
+
+    test("the agent read-only profile never queries pg_type, keeping user-defined types unnamed and preserving the envelope guarantee", async () => {
+      const fresh = new ReadOnlyEngineMock();
+      mockQueryFn = (sql: string, params?: unknown[]) => fresh.query(sql, params);
+      const profiled = new PostgresProvider(makePgConfig(), {}, { readOnly: true });
+      await profiled.connect();
+      await profiled.listContainers();
+
+      // Ensure no pg_type read was sent during connect or listContainers
+      const pgTypeReads = fresh.statements.filter((s) => s.text.includes("pg_type") && s.text.includes("typtype"));
+      expect(pgTypeReads).toEqual([]);
+
+      // Running a read-only query on a column with a user-defined OID does not name it
+      mockQueryFn = (sql: string | { text: string }) => {
+        const text = typeof sql === "string" ? sql : sql.text;
+        if (/select.*film/i.test(text)) {
+          return Promise.resolve({
+            rows: [{ rating: "NC-17", id: 1 }],
+            fields: [
+              { name: "rating", dataTypeID: 16504 },
+              { name: "id", dataTypeID: 23 },
+            ],
+            rowCount: 1,
+          });
+        }
+        return fresh.query(sql);
+      };
+
+      const result = await profiled.queryReadOnly("SELECT rating, id FROM film", roBudget());
+      expect(result.columnTypes).toEqual({ id: "integer" });
+      expect(result.columnTypes?.rating).toBeUndefined();
+
+      await profiled.disconnect();
     });
 
     test("runs exactly one statement inside BEGIN READ ONLY with a transaction-local timeout, then rolls back and releases", async () => {
@@ -5006,6 +5042,117 @@ describe("PostgresProvider declared column types", () => {
     expect(result.columnTypes).toEqual({ film_id: "integer" });
     expect(Object.hasOwn(result.columnTypes!, "rating")).toBe(false);
     await provider.disconnect();
+  });
+
+  test("user-defined types (enum, composite, vector) are named after schema refresh", async () => {
+    let customTypes: Array<{ oid: number; name: string }> = [
+      { oid: 16504, name: "mpaa_rating" },
+      { oid: 16505, name: "address_type" },
+      { oid: 17000, name: "vector" },
+    ];
+
+    mockQueryFn = (sql) => {
+      if (sql.includes("pg_catalog.pg_type") && sql.includes("typtype")) {
+        return Promise.resolve({
+          rows: customTypes,
+          fields: [{ name: "oid" }, { name: "name" }],
+          rowCount: customTypes.length,
+        });
+      }
+      if (sql.includes("pg_catalog.pg_namespace") && sql.includes("is_session_default")) {
+        return Promise.resolve({
+          rows: [{ name: "public", is_session_default: 1 }],
+          fields: [{ name: "name" }, { name: "is_session_default" }],
+          rowCount: 1,
+        });
+      }
+      return Promise.resolve({
+        rows: [{ rating: "NC-17", addr: "(123,Main)", vec: "[1,2,3]", id: 1 }],
+        fields: [
+          { name: "rating", dataTypeID: 16504 },
+          { name: "addr", dataTypeID: 16505 },
+          { name: "vec", dataTypeID: 17000 },
+          { name: "new_enum", dataTypeID: 16506 },
+          { name: "id", dataTypeID: 23 },
+        ],
+        rowCount: 1,
+      });
+    };
+
+    const provider = new PostgresProvider(makePgConfig());
+    await provider.connect();
+
+    // Directly after connect(), the map is already populated so existing types (rating, addr, vec) have names,
+    // while unadded enum 16506 is absent
+    let result = await provider.query("SELECT rating, addr, vec, new_enum, id FROM film");
+    expect(result.columnTypes).toEqual({
+      id: "integer",
+      rating: "mpaa_rating",
+      addr: "address_type",
+      vec: "vector",
+    });
+    expect(Object.hasOwn(result.columnTypes!, "new_enum")).toBe(false);
+
+    // Simulate creating new_enum in DB, then refresh containers
+    customTypes.push({ oid: 16506, name: "mood_status" });
+    await provider.listContainers();
+
+    result = await provider.query("SELECT rating, addr, vec, new_enum, id FROM film");
+    expect(result.columnTypes).toEqual({
+      id: "integer",
+      rating: "mpaa_rating",
+      addr: "address_type",
+      vec: "vector",
+      new_enum: "mood_status",
+    });
+
+    await provider.disconnect();
+  });
+
+  test("a failure in loading user-defined types logs a warning and does not break listContainers or queries", async () => {
+    const warnSpy = spyOn(logger, "warn").mockImplementation(() => {});
+    try {
+      mockQueryFn = (sql) => {
+        if (sql.includes("pg_catalog.pg_type") && sql.includes("typtype")) {
+          return Promise.reject(new Error("catalog access restricted or unsupported format_type"));
+        }
+        if (sql.includes("pg_catalog.pg_namespace") && sql.includes("is_session_default")) {
+          return Promise.resolve({
+            rows: [{ name: "public", is_session_default: 1 }],
+            fields: [{ name: "name" }, { name: "is_session_default" }],
+            rowCount: 1,
+          });
+        }
+        return Promise.resolve({
+          rows: [{ rating: "NC-17", id: 1 }],
+          fields: [
+            { name: "rating", dataTypeID: 16504 },
+            { name: "id", dataTypeID: 23 },
+          ],
+          rowCount: 1,
+        });
+      };
+
+      const provider = new PostgresProvider(makePgConfig());
+      await provider.connect();
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        "Failed to load user-defined types from pg_catalog.pg_type",
+        expect.objectContaining({ provider: "postgres" }),
+      );
+
+      // listContainers succeeds despite the user-defined types query failure
+      const containers = await provider.listContainers();
+      expect(containers.map((c) => c.name)).toEqual(["public"]);
+
+      // User query succeeds, user-defined OID is safely absent while built-in is present
+      const result = await provider.query("SELECT rating, id FROM film");
+      expect(result.columnTypes).toEqual({ id: "integer" });
+
+      await provider.disconnect();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   test("the key is omitted entirely when no column declared a type", async () => {
@@ -7052,6 +7199,7 @@ describe("PostgreSQL object listing and detail", () => {
     ];
     const seen: string[] = [];
     mockQueryFn = async (sql) => {
+      if (sql.includes("pg_type") && sql.includes("typtype")) return { rows: [] };
       if (!sql.includes("format_type")) return { rows: [] };
       seen.push(sql);
       expect(sql).toContain("'type', format_type(a.atttypid, NULL)");

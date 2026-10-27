@@ -77,8 +77,24 @@ describe("postgresColumnType", () => {
 
   test("is absent for an OID it cannot name rather than guessing", () => {
     // dvdrental's `film.rating` is the enum `mpaa_rating`, OID 16504 in that database.
-    // A user-defined OID is per-database, so no static table can name it.
+    // A user-defined OID is per-database, so no static table can name it without a userTypes map.
     expect(postgresColumnType(16504)).toBeUndefined();
+  });
+
+  test("resolves user-defined OIDs from the provided userTypes map", () => {
+    const userTypes = new Map<number, string>([
+      [16504, "mpaa_rating"],
+      [17000, "vector"],
+    ]);
+    expect(postgresColumnType(16504, userTypes)).toBe("mpaa_rating");
+    expect(postgresColumnType(17000, userTypes)).toBe("vector");
+    expect(postgresColumnType(18000, userTypes)).toBeUndefined();
+  });
+
+  test("built-in types always take precedence over the userTypes map", () => {
+    // Even if a map erroneously claims OID 23 (integer) is "custom_int", the static built-in wins
+    const spoofed = new Map<number, string>([[23, "custom_int"]]);
+    expect(postgresColumnType(23, spoofed)).toBe("integer");
   });
 });
 
@@ -172,6 +188,22 @@ describe("the per-driver result wrappers", () => {
   test("postgres: names what it can and skips the field that carries no OID", () => {
     expect(postgresColumnTypes([{ name: "a", dataTypeID: 20 }, { name: "b" }])).toEqual({
       columnTypes: { a: "bigint" },
+    });
+  });
+
+  test("postgres: names user-defined types using userTypes map", () => {
+    const userTypes = new Map<number, string>([[16504, "mpaa_rating"]]);
+    expect(
+      postgresColumnTypes(
+        [
+          { name: "a", dataTypeID: 20 },
+          { name: "rating", dataTypeID: 16504 },
+          { name: "c", dataTypeID: 99999 },
+        ],
+        userTypes,
+      ),
+    ).toEqual({
+      columnTypes: { a: "bigint", rating: "mpaa_rating" },
     });
   });
 
