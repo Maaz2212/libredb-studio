@@ -21,11 +21,19 @@ It is off by default.
     On InfluxDB (InfluxQL) it lists measurements with their tag and field keys, and on InfluxDB 3 (SQL) tables with their columns; the `_internal` database and the `system.*` tables of a 3.x server are never returned.
     On Databend it lists tables, views, materialized views and dynamic tables; on a Databend Cloud connection with a Warehouse set, a call resumes a suspended warehouse, which bills while it runs, as any statement does.
     On Apache Spark it lists the tables and views of one namespace, read with SHOW and DESCRIBE statements that start no Spark job on Studio's own session; a namespace is named in Spark's spelling, its parts joined by dots.
-  - `run_read_query` runs one read-only statement: a `SELECT` (a `WITH` is fine), `VALUES`, `TABLE`, or `EXPLAIN` without `ANALYZE`.
+  - `run_read_query` runs one read-only SQL statement.
+    A `SELECT` (a `WITH` is fine) runs on every engine it serves; a refused statement's answer names what else that engine takes.
     Runs on PostgreSQL, SQLite, DuckDB, SQL Server and MySQL; other engines refuse it, so use inspect_schema there.
+    It serves an engine only where agent mode executes statements on it, the engine is offered to MCP, and `MCP_STATEMENT_READ` in `src/lib/db/compatibility.ts` opens statement reads on it, so an engine that joins agent mode stays closed here until a change of its own opens it.
     It refuses every engine outside that list as soon as the connection resolves, before anything is acquired, answering "this tool does not serve <engine>; use inspect_schema there".
     MongoDB is one of them although agent mode executes on it, because its statement is a JSON command and this tool takes SQL (issue #1614); the MCP arm it lacks is `docs/BACKLOG.md` B117.
     Kubernetes is executed by agent mode too and is not offered to MCP at all.
+    Each engine takes these, as its row in `src/lib/db/providers/sql/read-query-forms.ts` names them:
+    - PostgreSQL: a `SELECT` (a `WITH` is fine), `VALUES`, `TABLE`, or `EXPLAIN` without `ANALYZE`.
+    - SQLite: a `SELECT` (a `WITH` is fine), `VALUES`, or `EXPLAIN`.
+    - DuckDB: a `SELECT` (a `WITH` is fine), `VALUES`, `TABLE`, or `EXPLAIN` without `ANALYZE`.
+    - SQL Server: a `SELECT` (a `WITH` is fine).
+    - MySQL: a `SELECT` (a `WITH` is fine), `VALUES`, `TABLE` (MySQL, not MariaDB), or `EXPLAIN` without `ANALYZE`.
 - Read-only is the database's own enforcement, not a filter over SQL text: `run_read_query` takes the connection under Studio's agent read-only execution profile and runs through the provider's read-only statement path, which PostgreSQL enforces with a read-only transaction, SQLite and DuckDB with a read-only open, SQL Server by verifying the principal cannot write, and MySQL and MariaDB by a least-privilege principal beside a read-only transaction.
   A statement check runs first as defence in depth.
 - A result that carries database content starts with a text block telling the model to treat what follows as untrusted data.
@@ -298,7 +306,7 @@ For the first few seconds after that service starts, `opencode mcp list` can say
 - Authentication is a static bearer token that Studio mints: there is no OAuth and no protected resource metadata document, so a client needs its `Authorization` header configured.
 - `run_read_query` reads at most 1000 rows and 1 MiB from the database, and answers at most `max_rows` rows (default 100, at most 500) and 32 KiB; `truncated`, `truncated_by`, `pagination.hasMore` and `pagination.nextOffset` say what was cut and where the next page starts.
 - A NaN, Infinity or -Infinity cell in a `run_read_query` answer is the string `"NaN"`, `"Infinity"` or `"-Infinity"`; it used to be `null`, which a client could not tell from SQL NULL. A text cell holding one of those words looks the same.
-- A query with its own `LIMIT` or `TOP`, and `VALUES`, `TABLE` or `EXPLAIN`, cannot be paged with `offset`; the answer says how to page it in SQL.
+- A query with its own `LIMIT` or `TOP`, and `VALUES`, `TABLE` or `EXPLAIN`, cannot be paged with `offset`; the answer says how to page it in that engine's SQL.
 - `inspect_schema` and `list_connections` fit each page to 32 KiB, and `has_more` and `next_offset` say where the next page starts.
 - Every `POST` spends one slot of the same per-user budget the database routes use (`RATE_LIMIT_QUERY_MAX`, 120 a minute by default), so a session and an MCP token of one person share it.
 - Studio honours a cancel only when the client closes the request.

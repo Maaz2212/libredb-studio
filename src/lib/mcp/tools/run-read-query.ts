@@ -1,10 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { AGENT_EXECUTION_ENGINES, namedList } from "@/lib/agent/engine-support";
-import { AGENT_STATEMENT_LANGUAGE } from "@/lib/agent/agent-manifest";
+import { namedList } from "@/lib/agent/engine-support";
 import { getDBConfig } from "@/lib/db-ui-config";
-import { MCP_EXPOSABLE } from "@/lib/db/compatibility";
-import { ExecutionProfileError } from "@/lib/db/errors";
+import { ExecutionProfileError, OffsetUnsupportedError } from "@/lib/db/errors";
 import type { DatabaseProvider, PreparedQuery } from "@/lib/db/types";
 import { logger } from "@/lib/logger";
 import type { ManagedConnection } from "@/lib/seed";
@@ -44,7 +42,7 @@ import { redactError, safeSerialize } from "../serializer";
 import {
   classifyReadQueryFailure,
   fenceRefusalText,
-  MORE_ROWS_THAN_PAGEABLE_HINT,
+  moreRowsThanPageableHint,
   nextPageHint,
   offsetRefusalText,
   profileRefusalText,
@@ -52,6 +50,7 @@ import {
   ROW_OVER_CAP_TEXT,
   timeoutText,
 } from "./read-query-limits";
+import { mcpStatementEngines } from "./served-engines";
 
 /**
  * run_read_query (#246): one read-only statement, on an engine that can bound it itself.
@@ -66,7 +65,8 @@ import {
  * Rows are fetched one past the page, so the extra row proves more exist, cut to max_rows, then
  * cut to the result cap by binary search. offset on a query the provider did not rewrite is
  * refused before anything runs, because the provider would answer the first page labelled with
- * the requested offset.
+ * the requested offset; so is an offset the provider's prepareQuery refuses by throwing
+ * OffsetUnsupportedError, as the Elasticsearch and Cassandra overrides do, answered in their own words.
  */
 
 export const RunReadQueryInputSchema = z.object({
@@ -102,10 +102,11 @@ export type RunReadQueryInput = z.infer<typeof RunReadQueryInputSchema>;
 
 const RUN_READ_QUERY_TITLE = "Run a read-only query";
 /**
- * The engines this tool serves: those agent mode executes statements on, offered to MCP by
- * MCP_EXPOSABLE, whose statement is SQL. The description names them and runReadQuery refuses every
- * other engine before anything is acquired, both from this one list, so the tool cannot advertise
- * an engine it refuses or run on one it does not name.
+ * The engines this tool serves, from the one served-engine resolver: those agent mode executes
+ * statements on, offered to MCP by MCP_EXPOSABLE, opened to MCP statement reads by
+ * MCP_STATEMENT_READ, whose statement is SQL. The description names them and runReadQuery refuses
+ * every other engine before anything is acquired, both from this one list, so the tool cannot
+ * advertise an engine it refuses or run on one it does not name.
  *
  * The factory's profile does not draw this line: it refuses a provider with no read-only path at
  * all. Kubernetes is executed by the agent and closed to MCP. MongoDB is offered to MCP for
@@ -113,12 +114,11 @@ const RUN_READ_QUERY_TITLE = "Run a read-only query";
  * but this tool's input is a SQL statement: issue #1614 (decision 2) keeps it out of this tool, and
  * docs/BACKLOG.md records the MCP tool it lacks as "MongoDB has no MCP run_read_query arm".
  */
-export const RUN_READ_QUERY_TYPES: readonly DatabaseType[] = AGENT_EXECUTION_ENGINES.filter(
-  (type) => MCP_EXPOSABLE[type] && AGENT_STATEMENT_LANGUAGE[type] === "sql",
-);
+export const RUN_READ_QUERY_TYPES: readonly DatabaseType[] = mcpStatementEngines("sql");
 /** Derived from the list, as src/lib/agent/posture.ts derives its own sentence. */
 export const RUN_READ_QUERY_ENGINES = namedList(RUN_READ_QUERY_TYPES.map((type) => getDBConfig(type).label));
-export const RUN_READ_QUERY_DESCRIPTION = `Run one read-only SQL statement on a connection: a SELECT (a WITH is fine), VALUES, TABLE, or EXPLAIN without ANALYZE. Runs on ${RUN_READ_QUERY_ENGINES}; other engines refuse it, so use inspect_schema there. Returns at most max_rows rows (default 100, at most 500) and at most 32 KiB; truncated and pagination.hasMore say when rows were cut, and pagination.nextOffset is the offset of the next page when the query can be paged. ${MCP_UNTRUSTED_NOTICE}`;
+/** Names no statement form beyond SELECT, because the others differ by engine; the refusal names the engine's own. */
+export const RUN_READ_QUERY_DESCRIPTION = `Run one read-only SQL statement on a connection. A SELECT (a WITH is fine) runs on every engine it serves; a refused statement's answer names what else that engine takes. Runs on ${RUN_READ_QUERY_ENGINES}; other engines refuse it, so use inspect_schema there. Returns at most max_rows rows (default 100, at most 500) and at most 32 KiB; truncated and pagination.hasMore say when rows were cut, and pagination.nextOffset is the offset of the next page when the query can be paged. ${MCP_UNTRUSTED_NOTICE}`;
 
 /** A result, and the reason its outcome event records when it is a failure. */
 type Answer = readonly [ToolResult, McpToolAuditReason?];
@@ -149,7 +149,7 @@ function failureAnswer(
   return [engineError(MCP_ENGINE_ERROR_PREFIX, failure.error), "mcp_execution_failed"];
 }
 
-function resultOf(args: RunReadQueryInput, prepared: PreparedQuery, raw: QueryResult): Answer {
+function resultOf(args: RunReadQueryInput, type: DatabaseType, prepared: PreparedQuery, raw: QueryResult): Answer {
   const all = safeSerialize(raw.rows);
   const page = all.slice(0, args.max_rows);
   const columns = raw.fields.map((name) => {
@@ -170,7 +170,7 @@ function resultOf(args: RunReadQueryInput, prepared: PreparedQuery, raw: QueryRe
         truncated: truncatedBy !== null,
         truncated_by: truncatedBy,
         pagination: { offset: args.offset, limit: args.max_rows, hasMore, nextOffset, wasLimited: prepared.wasLimited },
-        hint: nextOffset !== null ? nextPageHint(nextOffset) : hasMore ? MORE_ROWS_THAN_PAGEABLE_HINT : null,
+        hint: nextOffset !== null ? nextPageHint(nextOffset) : hasMore ? moreRowsThanPageableHint(type) : null,
         byte_size: 0,
         execution_time_ms: raw.executionTime,
       },
@@ -221,10 +221,22 @@ async function execute(
     );
     return [ownWordsError(refusal), "mcp_execution_failed"];
   }
-  const prepared = provider.prepareQuery(args.sql, { limit: args.max_rows + 1, offset: args.offset });
-  if (!prepared.wasLimited && args.offset > 0) {
-    return [ownWordsError(offsetRefusalText(args.sql, connection.type)), "mcp_offset_unsupported"];
+  const offsetRefused = (): Answer => [
+    ownWordsError(offsetRefusalText(args.sql, connection.type)),
+    "mcp_offset_unsupported",
+  ];
+  let prepared: PreparedQuery;
+  try {
+    prepared = provider.prepareQuery(args.sql, { limit: args.max_rows + 1, offset: args.offset });
+  } catch (error) {
+    // An engine whose SQL cannot page refuses the offset here, and its sentence says what to do instead; any other
+    // failure, and this one with no offset asked for, is the engine's, never masked as an offset refusal.
+    if (error instanceof OffsetUnsupportedError && args.offset > 0) {
+      return [ownWordsError(error.message), "mcp_offset_unsupported"];
+    }
+    throw error;
   }
+  if (!prepared.wasLimited && args.offset > 0) return offsetRefused();
   const executed = await raceDeadline(
     () =>
       queryReadOnly(prepared.query, {
@@ -240,7 +252,7 @@ async function execute(
   if (executed.kind === "failed") {
     return failureAnswer(executed.error, executed.settledAt, deadline, args.timeout_ms, record);
   }
-  return resultOf(args, prepared, executed.value);
+  return resultOf(args, connection.type, prepared, executed.value);
 }
 
 export async function runReadQuery(args: RunReadQueryInput, call: McpToolCall): Promise<ToolResult> {
@@ -267,7 +279,8 @@ export async function runReadQuery(args: RunReadQueryInput, call: McpToolCall): 
     return refuse(resolved, "mcp_execution_failed", profileRefusalText(notServed, RUN_READ_QUERY_ENGINES));
   }
   const violation = checkReadOnlyStatement(args.sql);
-  if (violation !== null) return refuse(resolved, "mcp_statement_refused", fenceRefusalText(violation));
+  if (violation !== null)
+    return refuse(resolved, "mcp_statement_refused", fenceRefusalText(violation, connection.type));
   const unrecorded = recordOrRefuse(() => recordMcpDecision(resolved));
   if (unrecorded !== null) return unrecorded;
 
