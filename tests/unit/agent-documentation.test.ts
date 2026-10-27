@@ -30,7 +30,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { operatorCopyViolations } from "../../scripts/sync-chart-version.mjs";
-import { AGENT_STATEMENT_LANGUAGE, AGENT_WORKFLOW_VARIANTS } from "@/lib/agent/agent-manifest";
+import { AGENT_LANGUAGE_COPY, AGENT_STATEMENT_LANGUAGE, AGENT_WORKFLOW_VARIANTS } from "@/lib/agent/agent-manifest";
 import { AGENT_EXECUTION_ENGINES, namedList } from "@/lib/agent/engine-support";
 import { AGENT_HISTORY_MAX_CONVERSATIONS, AGENT_WORKFLOW_BUDGETS } from "@/lib/agent/execution-policy";
 import * as engineClientResolvers from "@/lib/agent/languages/engines/client";
@@ -520,7 +520,7 @@ const AGENT_ENGINE_CLAIM =
   /agent mode|agentモード|agent 모드|режим agent|agent 模式|read-only (?:investigation )?agent|(?:execut(?:es|ing)|runs) statements|statement path|agent read-only profile|queryReadOnly/i;
 
 /** A sentence naming SQL engines for MCP, whose `run_read_query` serves the SQL engines alone (#1614 decision 2). */
-const MCP_CLAIM = /\bMCP\b|run_read_query|Three read-only tools/;
+const MCP_CLAIM = /\bMCP\b|run_read_query|Four read-only tools/;
 
 /**
  * An engine count where the engines should be named (#1614: "Never write a count of engines; name them from the
@@ -860,5 +860,16 @@ describe("docs/AGENT.md names every language-pack resolver in its Language packs
 
   test("each resolver is named in backticks", () => {
     expect(RESOLVERS.filter((name) => !section.includes(`\`${name}\``))).toEqual([]);
+  });
+
+  // Derived from the record that is total over AgentStatementLanguageId, so a language's first-member change cannot
+  // land without moving this sentence (all-providers design 5.2, V24).
+  test("its opening sentence counts and names every statement language", () => {
+    const ids = Object.keys(AGENT_LANGUAGE_COPY);
+    const COUNT_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+    expect(ids.length).toBeLessThan(COUNT_WORDS.length);
+    expect(section).toContain(
+      `Agent mode reads statements in ${COUNT_WORDS[ids.length]} statement languages, ${namedList(ids.map((id) => `\`${id}\``))}, and what it does differently`,
+    );
   });
 });

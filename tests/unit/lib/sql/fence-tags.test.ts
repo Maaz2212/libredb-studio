@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { fenceTagEngine, isQueryFenceTag } from "@/lib/sql/fence-tags";
+import { ALIAS_ENGINES, fenceTagEngine, isQueryFenceTag, QUERY_FENCE_ALIASES } from "@/lib/sql/fence-tags";
 import type { DatabaseType } from "@/lib/types";
 
 /**
@@ -197,5 +197,29 @@ describe("fenceTagEngine", () => {
     // The control: the canonical tag names the same engine, so the two spellings cannot disagree.
     expect(isQueryFenceTag("prometheus")).toBe(true);
     expect(fenceTagEngine("prometheus")).toBe("prometheus");
+  });
+});
+
+describe("the two alias registries", () => {
+  // `fenceTagEngine` reads only ALIAS_ENGINES, so an alias added to the query set alone is a block offered to the editor
+  // that never contradicts a connection (all-providers design 5.2, V13). `sql` is the one deliberate exception: it is a
+  // language every SQL engine speaks, so it names none.
+  const LANGUAGE_ONLY = ["sql"];
+  // Known debt, not a rule: `cql` should name `cassandra`, the one type-id that runs CQL (docs/BACKLOG.md B86). Fixing
+  // B86 fails the second test below, and deletes this entry.
+  const KNOWN_GAPS = ["cql"];
+
+  test("every alias that names an engine is in both, and only sql and the known gaps are in the query set alone", () => {
+    const named = [...QUERY_FENCE_ALIASES].filter(
+      (alias) => !LANGUAGE_ONLY.includes(alias) && !KNOWN_GAPS.includes(alias),
+    );
+    expect(named.sort()).toEqual(Object.keys(ALIAS_ENGINES).sort());
+  });
+
+  test("sql names no engine, and each known gap names none until its backlog entry is fixed", () => {
+    for (const alias of [...LANGUAGE_ONLY, ...KNOWN_GAPS]) {
+      expect(QUERY_FENCE_ALIASES.has(alias)).toBe(true);
+      expect(fenceTagEngine(alias)).toBeNull();
+    }
   });
 });
