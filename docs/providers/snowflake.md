@@ -592,6 +592,9 @@ With neither, it reads no schema.
 In each case the inventory tells the model how many schemas it did not read and names the ones it did.
 The agent operations workflow is offered and reads through the monitoring panels' gate.
 A Role edit makes a new connection identity, so a plan held under one role is not validated under another.
+Snowflake declares no agent credential form yet, so an agent credential here is the user-and-password pair, which reaches a key-pair connection's user but not its `privateKey`.
+It takes the `"dedicated-user"` form, an agent user other than the connection's own with that user's PAT in the agent password, when it joins agent mode (D324).
+That form overlays only the user and password, so an agent key pair needs the form or the overlay extended to reach `privateKey`, which is part of the same work (D324).
 
 ### 8.4 MCP
 

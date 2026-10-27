@@ -335,6 +335,8 @@ condition as a clear `ConnectionError` (see [§10](#10-error-handling)):
   borrows (it sends no statement of the model's, so `agent-read-only` and `agent-handover` are
   still refused on this engine), and an acquisition is not borrowed for a connection that
   configures an `agentUser`, because a reuse cannot substitute one principal for another.
+  LibreDB declares `agentCredential: "none"`, since an embedded file has no user to sign an agent in
+  as, so such an acquisition refuses the agent credential before its own handle opens the file.
 
 > **DOWNGRADE WARNING:** a file written by `@libredb/libredb` 0.2.x must never be opened by 0.1.3
 > or older. The old recovery cannot parse the header, classifies the whole file as a torn tail,
@@ -1216,8 +1218,9 @@ reuse* (the borrow, the resolved-path identity, the control arm proving a second
 refused, and SQLite proving it is not borrowed from) and *grounding a plan run while the writable
 provider holds the file* (a real plan-mode `captureContextSnapshot` comes back `captured` via
 `provider-inventory` with the profiled cache owning nothing; its control arm — the same run with an
-`agentUser`, which opts out of the reuse — comes back `unavailable` / `CATALOG_READ_REFUSED`, which
-is what every run did before this was closed). What this file asserts is the provider's own half:
+`agentUser`, which opts out of the reuse — comes back `unavailable` / `CATALOG_READ_REFUSED`, now
+because the `"none"` agent credential form refuses the credential before a second handle opens the
+file, where before PR 0.7 that run hit the lock, the refusal every run met before this was closed). What this file asserts is the provider's own half:
 `getCapabilities().singleWriterFile === true`.
 
 A **0.2.x error mapping & locking** suite covers the hardened file boundary: a second open of a
