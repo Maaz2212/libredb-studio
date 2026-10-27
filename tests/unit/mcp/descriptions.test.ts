@@ -13,7 +13,7 @@ import { MCP_UNTRUSTED_NOTICE } from "@/lib/mcp/output";
 import { MCP_INSTRUCTIONS } from "@/lib/mcp/server";
 import { INSPECT_SCHEMA_DESCRIPTION } from "@/lib/mcp/tools/inspect-schema";
 import { LIST_CONNECTIONS_DESCRIPTION } from "@/lib/mcp/tools/list-connections";
-import { RUN_MONGO_COMMAND_ARM } from "@/lib/mcp/tools/statement-arms";
+import { RUN_KUBECTL_READ_ARM, RUN_MONGO_COMMAND_ARM } from "@/lib/mcp/tools/statement-arms";
 import {
   RUN_READ_QUERY_DESCRIPTION,
   RUN_READ_QUERY_ENGINES,
@@ -32,6 +32,7 @@ const DESCRIPTIONS = [
   ["list_connections", LIST_CONNECTIONS_DESCRIPTION, "List the database connections"],
   ["inspect_schema", INSPECT_SCHEMA_DESCRIPTION, "List the tables of one connection"],
   ["run_read_query", RUN_READ_QUERY_DESCRIPTION, "Run one read-only SQL statement"],
+  ["run_kubectl_read", RUN_KUBECTL_READ_ARM.description, "Run one read-only kubectl read"],
   ["run_mongo_command", RUN_MONGO_COMMAND_ARM.description, "Run one read-only MongoDB command"],
 ] as const;
 
@@ -45,6 +46,7 @@ describe("the tool descriptions", () => {
     expect(INSPECT_SCHEMA_DESCRIPTION.endsWith(MCP_UNTRUSTED_NOTICE)).toBe(true);
     expect(RUN_READ_QUERY_DESCRIPTION.endsWith(MCP_UNTRUSTED_NOTICE)).toBe(true);
     expect(RUN_MONGO_COMMAND_ARM.description.endsWith(MCP_UNTRUSTED_NOTICE)).toBe(true);
+    expect(RUN_KUBECTL_READ_ARM.description.endsWith(MCP_UNTRUSTED_NOTICE)).toBe(true);
     expect(LIST_CONNECTIONS_DESCRIPTION).not.toContain(MCP_UNTRUSTED_NOTICE);
   });
 
@@ -77,6 +79,23 @@ describe("the tool descriptions", () => {
     expect(RUN_MONGO_COMMAND_ARM.description).toContain("this tool takes no offset");
   });
 
+  test("run_kubectl_read names Kubernetes, the one engine its handler gates on, and says what it masks", () => {
+    expect(RUN_KUBECTL_READ_ARM.description).toContain("Runs on Kubernetes; other engines refuse it.");
+    expect(RUN_KUBECTL_READ_ARM.description).toContain("a Secret's name in every field defined to hold one");
+    expect(RUN_KUBECTL_READ_ARM.description).not.toContain("wherever it appears");
+    expect(RUN_KUBECTL_READ_ARM.description).toContain(
+      "Free-text status, event and log messages are not masked, so a Secret's name or a value an application printed can reach you there.",
+    );
+    expect(RUN_KUBECTL_READ_ARM.description).toContain("this tool takes no offset");
+  });
+
+  test("inspect_schema says an engine with no tables refuses it, and where to read it instead (ruling 35)", () => {
+    expect(INSPECT_SCHEMA_DESCRIPTION).toContain(
+      "Works on every engine that holds tables. An engine whose objects are not tables, such as Kubernetes, refuses it, and the refusal names the tool that reads it, as list_connections' read_tool does.",
+    );
+    expect(INSPECT_SCHEMA_DESCRIPTION).not.toContain("Works on every engine.");
+  });
+
   test("names no statement form, because the forms differ by engine and the refusal names them", () => {
     expect(RUN_READ_QUERY_DESCRIPTION).not.toContain("VALUES");
     expect(RUN_READ_QUERY_DESCRIPTION).not.toContain("TABLE");
@@ -85,8 +104,8 @@ describe("the tool descriptions", () => {
     );
   });
 
-  test("inspect_schema and list_connections say they work on every engine", () => {
-    expect(INSPECT_SCHEMA_DESCRIPTION).toContain("Works on every engine.");
+  test("list_connections says it works on every engine, and inspect_schema on every engine that holds tables", () => {
+    expect(INSPECT_SCHEMA_DESCRIPTION).toContain("Works on every engine that holds tables.");
     expect(LIST_CONNECTIONS_DESCRIPTION).toContain("Works for every engine.");
   });
 
