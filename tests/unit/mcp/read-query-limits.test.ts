@@ -2,16 +2,25 @@
  * The pure rules of run_read_query (#246): the offset rule's answers, the mapping of this
  * repository's own provider refusals, the timeout classification, the deadline race and the texts
  * a caller reads. The provider files are read, never edited, so a reworded message breaks this
- * build instead of falling through to an engine error.
+ * build instead of falling through to an engine error, and a provider that types out the row or
+ * byte refusal again instead of calling the shared constructor breaks it too (D367).
  */
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { rowBudgetRefusal } from "@/lib/db/providers/document/mongodb/agent-read";
+import { READ_QUERY_FORMS, readQueryFormsOf } from "@/lib/db/providers/sql/read-query-forms";
+import {
+  BYTE_BUDGET_PREFIX,
+  byteBudgetSentence,
+  ROW_BUDGET_PREFIX,
+  rowBudgetSentence,
+} from "@/lib/db/providers/sql/read-only-budget";
 import {
   classifyReadQueryFailure,
   fenceRefusalText,
-  IN_SQL_PAGING,
-  MORE_ROWS_THAN_PAGEABLE_HINT,
+  inSqlPaging,
+  moreRowsThanPageableHint,
   nextPageHint,
   offsetRefusalText,
   profileRefusalText,
@@ -20,8 +29,10 @@ import {
   ROW_OVER_CAP_TEXT,
   timeoutText,
 } from "@/lib/mcp/tools/read-query-limits";
+import { RUN_READ_QUERY_TYPES } from "@/lib/mcp/tools/run-read-query";
 
-const PROVIDERS = join(import.meta.dir, "../../../src/lib/db/providers/sql");
+const REPO = join(import.meta.dir, "../../..");
+const read = (file: string): string => readFileSync(join(REPO, file), "utf8");
 const ROWS =
   "The result has more than 1000 rows, the most this server reads for one call. Add a LIMIT of 1000 or less, or remove your own LIMIT and page with offset.";
 const BYTES =
@@ -31,15 +42,16 @@ const CUT_VALUE =
 const SERIALISED =
   "SQL Server returns a FOR JSON or FOR XML result as one serialised value, which this server cannot bound. Select the rows themselves, without the FOR JSON or FOR XML clause.";
 const OWN_LIMIT =
-  "This query has its own LIMIT or TOP, so it cannot be paged with offset. Remove it and page with offset, or page it in SQL: LIMIT n OFFSET m, or on SQL Server ORDER BY ... OFFSET m ROWS FETCH NEXT n ROWS ONLY.";
+  "This query has its own LIMIT or TOP, so it cannot be paged with offset. Remove it and page with offset, or page it in SQL: LIMIT n OFFSET m.";
+const OWN_LIMIT_MSSQL =
+  "This query has its own LIMIT or TOP, so it cannot be paged with offset. Remove it and page with offset, or page it in SQL: ORDER BY ... OFFSET m ROWS FETCH NEXT n ROWS ONLY.";
 
 describe("the texts", () => {
   test("are the design's words", () => {
-    expect(IN_SQL_PAGING).toBe(
-      "Page it in SQL: LIMIT n OFFSET m, or on SQL Server ORDER BY ... OFFSET m ROWS FETCH NEXT n ROWS ONLY.",
-    );
-    expect(MORE_ROWS_THAN_PAGEABLE_HINT).toBe(
-      `More rows exist than this result holds, and this query cannot be paged with offset. ${IN_SQL_PAGING}`,
+    expect(inSqlPaging("postgres")).toBe("Page it in SQL: LIMIT n OFFSET m.");
+    expect(inSqlPaging("mssql")).toBe("Page it in SQL: ORDER BY ... OFFSET m ROWS FETCH NEXT n ROWS ONLY.");
+    expect(moreRowsThanPageableHint("sqlite")).toBe(
+      "More rows exist than this result holds, and this query cannot be paged with offset. Page it in SQL: LIMIT n OFFSET m.",
     );
     expect(nextPageHint(100)).toBe("Call again with offset 100 for the next page.");
     expect(timeoutText(500)).toBe(
@@ -48,8 +60,8 @@ describe("the texts", () => {
     expect(ROW_OVER_CAP_TEXT).toBe(
       "One row of this result is larger than the 32 KiB result limit. Select fewer or narrower columns, for example a substring of a long text column.",
     );
-    expect(fenceRefusalText("NON_READ_STATEMENT")).toBe(
-      "The statement was refused before it reached the database (NON_READ_STATEMENT). run_read_query runs one read-only statement: a SELECT (a WITH is fine), VALUES, TABLE, or EXPLAIN without ANALYZE.",
+    expect(fenceRefusalText("NON_READ_STATEMENT", "postgres")).toBe(
+      "The statement was refused before it reached the database (NON_READ_STATEMENT). On this engine run_read_query runs one read-only statement: a SELECT (a WITH is fine), VALUES, TABLE, or EXPLAIN without ANALYZE.",
     );
     expect(profileRefusalText("the engine has no read-only statement path", "PostgreSQL and SQLite")).toBe(
       "run_read_query cannot run on this connection: the engine has no read-only statement path. It runs on PostgreSQL and SQLite.",
@@ -72,11 +84,48 @@ describe("the texts", () => {
   });
 });
 
+/**
+ * The statements each served engine takes, among those the fence admits, as measured on 2026-10-27: SQLite 3.53.4 and
+ * SQL Server 2022 refuse `TABLE`, SQL Server also refuses a bare `VALUES` and has no `EXPLAIN`, and MariaDB 11.8
+ * refuses `TABLE` where MySQL runs it (all-providers design 6.2, V11).
+ */
+describe("the accepted forms each engine's refusal names", () => {
+  test.each([
+    ["postgres", "a SELECT (a WITH is fine), VALUES, TABLE, or EXPLAIN without ANALYZE"],
+    ["sqlite", "a SELECT (a WITH is fine), VALUES, or EXPLAIN"],
+    ["duckdb", "a SELECT (a WITH is fine), VALUES, TABLE, or EXPLAIN without ANALYZE"],
+    ["mssql", "a SELECT (a WITH is fine)"],
+    ["mysql", "a SELECT (a WITH is fine), VALUES, TABLE (MySQL, not MariaDB), or EXPLAIN without ANALYZE"],
+  ] as const)("%s: %s", (type, statements) => {
+    expect(fenceRefusalText("NON_READ_STATEMENT", type)).toBe(
+      `The statement was refused before it reached the database (NON_READ_STATEMENT). On this engine run_read_query runs one read-only statement: ${statements}.`,
+    );
+  });
+
+  test("a SQLite refusal no longer offers TABLE", () => {
+    expect(fenceRefusalText("NON_READ_STATEMENT", "sqlite")).not.toContain("TABLE");
+  });
+
+  test("every engine run_read_query serves has a row", () => {
+    for (const type of RUN_READ_QUERY_TYPES) expect(READ_QUERY_FORMS[type]).not.toBeNull();
+  });
+
+  test("an engine with no row is refused by name, never answered with another engine's forms", () => {
+    expect(READ_QUERY_FORMS.mongodb).toBeNull();
+    expect(() => readQueryFormsOf("mongodb")).toThrow("run_read_query has no accepted-forms row for mongodb");
+  });
+});
+
 describe("the offset rule", () => {
   test.each([
     ["SELECT id FROM numbers LIMIT 10", "sqlite", OWN_LIMIT],
-    ["SELECT TOP 5 id FROM numbers", "mssql", OWN_LIMIT],
-    ["SELECT id FROM numbers", "sqlite", `This query cannot be paged with offset. ${IN_SQL_PAGING}`],
+    ["SELECT TOP 5 id FROM numbers", "mssql", OWN_LIMIT_MSSQL],
+    ["SELECT id FROM numbers", "sqlite", "This query cannot be paged with offset. Page it in SQL: LIMIT n OFFSET m."],
+    [
+      "SELECT id FROM numbers",
+      "mssql",
+      "This query cannot be paged with offset. Page it in SQL: ORDER BY ... OFFSET m ROWS FETCH NEXT n ROWS ONLY.",
+    ],
     ["VALUES (1), (2), (3)", "sqlite", "This statement's result cannot be paged. Call again without offset."],
     ["TABLE numbers", "postgres", "This statement's result cannot be paged. Call again without offset."],
     ["EXPLAIN SELECT id FROM numbers", "duckdb", "This statement's result cannot be paged. Call again without offset."],
@@ -130,26 +179,103 @@ describe("the provider refusal mapper", () => {
   });
 });
 
+describe("the budget sentences every provider shares (D367)", () => {
+  test("read the way the mapper and rowBudgetIn read them", () => {
+    expect(rowBudgetSentence(1001, 1000)).toBe("Read-only execution exceeded the row budget: 1001 rows > 1000 allowed");
+    expect(byteBudgetSentence(2000000, 1048576)).toBe(
+      "Read-only execution exceeded the byte budget: 2000000 bytes > 1048576 allowed",
+    );
+  });
+
+  // The mapper matches the very openings the constructors write, so neither can be reworded alone.
+  test("the mapper's row and byte entries are the shared module's prefixes", () => {
+    expect(READ_ONLY_REFUSALS.filter(({ kind }) => kind === "rows" || kind === "bytes")).toEqual([
+      { prefix: ROW_BUDGET_PREFIX, kind: "rows" },
+      { prefix: BYTE_BUDGET_PREFIX, kind: "bytes" },
+    ]);
+    expect(rowBudgetSentence(1, 0).startsWith(`${ROW_BUDGET_PREFIX}: `)).toBe(true);
+    expect(byteBudgetSentence(1, 0).startsWith(`${BYTE_BUDGET_PREFIX}: `)).toBe(true);
+  });
+
+  // MongoDB's row refusal adds a cursor-bound tail after the shared sentence; the mapper still reads it.
+  // kubectl's own refusals are fed to the mapper in tests/unit/db/kubernetes/machine-read.test.ts.
+  test("maps MongoDB's row refusal at the cursor bound to too-large", () => {
+    const message = rowBudgetRefusal(
+      201,
+      { statementTimeoutMs: 1, maxResultRows: 200, maxResultBytes: 1 },
+      "{}",
+      true,
+    ).message;
+    expect(classifyReadQueryFailure(new Error(message), 1_000, 10_000)).toEqual({ kind: "too-large", text: ROWS });
+  });
+});
+
 describe("the prefixes the mapper matches still start a message in each provider that raises it", () => {
+  const SHARED = "src/lib/db/providers/sql/read-only-budget.ts";
+  // The row and byte openings are constants of the shared module, so they are checked as declared there.
+  const SHARED_PREFIXES = [ROW_BUDGET_PREFIX, BYTE_BUDGET_PREFIX];
   const RAISED_IN: Record<string, readonly string[]> = {
-    "Read-only execution exceeded the row budget": ["sqlite.ts", "duckdb/index.ts", "postgres.ts", "mssql.ts"],
-    "Read-only execution exceeded the byte budget": ["sqlite.ts", "duckdb/index.ts", "postgres.ts", "mssql.ts"],
-    "Read-only execution refused a value the server cut at the byte budget": ["mssql.ts"],
-    "Read-only execution cannot bound a serialised result": ["mssql.ts"],
-    "Read-only execution exceeded the time budget": ["sqlite.ts", "duckdb/index.ts"],
-    "Read-only execution exceeded its time budget": ["mssql.ts"],
+    "Read-only execution refused a value the server cut at the byte budget": ["src/lib/db/providers/sql/mssql.ts"],
+    "Read-only execution cannot bound a serialised result": ["src/lib/db/providers/sql/mssql.ts"],
+    "Read-only execution exceeded the time budget": [
+      "src/lib/db/providers/sql/sqlite.ts",
+      "src/lib/db/providers/sql/duckdb/index.ts",
+    ],
+    "Read-only execution exceeded its time budget": ["src/lib/db/providers/sql/mssql.ts"],
+  };
+  // Each provider with a queryReadOnly, by the files that raise its row or byte refusal.
+  const SHARED_USERS: Record<string, readonly string[]> = {
+    postgres: ["src/lib/db/providers/sql/postgres.ts"],
+    mysql: ["src/lib/db/providers/sql/mysql.ts"],
+    mssql: ["src/lib/db/providers/sql/mssql.ts"],
+    sqlite: ["src/lib/db/providers/sql/sqlite.ts"],
+    duckdb: ["src/lib/db/providers/sql/duckdb/index.ts"],
+    mongodb: ["src/lib/db/providers/document/mongodb/agent-read.ts"],
+    kubernetes: [
+      "src/lib/db/providers/platform/kubernetes/machine-read.ts",
+      "src/lib/db/providers/platform/kubernetes/console/describe.ts",
+      "src/lib/db/providers/platform/kubernetes/console/events.ts",
+      "src/lib/db/providers/platform/kubernetes/console/get-documents.ts",
+      "src/lib/db/providers/platform/kubernetes/console/logs.ts",
+    ],
   };
 
   test("every prefix the mapper matches is listed here", () => {
-    expect(READ_ONLY_REFUSALS.map((refusal) => refusal.prefix).sort()).toEqual(Object.keys(RAISED_IN).sort());
+    expect(READ_ONLY_REFUSALS.map((refusal) => refusal.prefix).sort()).toEqual(
+      [...SHARED_PREFIXES, ...Object.keys(RAISED_IN)].sort(),
+    );
   });
 
   test.each(Object.entries(RAISED_IN).flatMap(([prefix, files]) => files.map((file) => [prefix, file] as const)))(
     "%p opens a message in %s",
     (prefix, file) => {
-      expect(readFileSync(join(PROVIDERS, file), "utf8")).toContain(`\`${prefix}`);
+      expect(read(file)).toContain(`\`${prefix}`);
     },
   );
+
+  test.each(SHARED_PREFIXES)("%p is written once, in the shared module", (prefix) => {
+    expect(read(SHARED).split(prefix)).toHaveLength(2);
+  });
+
+  // The whole source tree, the MCP mapper included: it imports the prefixes rather than typing its own copy.
+  test.each(SHARED_PREFIXES)("%p is written in no source file but the shared module", (prefix) => {
+    const writers = readdirSync(join(REPO, "src"), { recursive: true, encoding: "utf8" })
+      .filter((file) => /\.tsx?$/.test(file))
+      // readdirSync answers with the platform separator; the census names files with "/".
+      .map((file) => `src/${file.replaceAll("\\", "/")}`)
+      .filter((file) => read(file).includes(prefix));
+    expect(writers).toEqual([SHARED]);
+  });
+
+  test.each(
+    Object.entries(SHARED_USERS).flatMap(([provider, files]) => files.map((file) => [provider, file] as const)),
+  )("%s builds its budget refusal with the shared constructor in %s", (_provider, file) => {
+    const source = read(file);
+    expect(source).toMatch(
+      /import \{[^}]*\b(rowBudgetSentence|byteBudgetSentence)\b[^}]*\} from "[^"]*read-only-budget";/,
+    );
+    expect(source).toMatch(/\b(rowBudgetSentence|byteBudgetSentence)\(/);
+  });
 });
 
 describe("raceDeadline", () => {

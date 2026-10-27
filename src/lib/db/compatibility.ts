@@ -544,14 +544,15 @@ export const MCP_EXPOSABLE: Readonly<Record<DatabaseType, boolean>> = Object.fre
   // Outside this version, as etcd's and Oxia's: the provider implements no queryReadOnly, and no MCP surface
   // that lists buckets but never an object key is designed yet (BACKLOG B104).
   s3: false,
-  // Agent mode reads it under machine redaction; MCP stays closed until an MCP surface for it is designed (BACKLOG
-  // B105).
-  kubernetes: false,
+  // Offered with every answer machine-redacted (all-providers ruling 21): `run_kubectl_read` runs the agent's
+  // `queryReadOnly`, whose output masks every Secret name, and `inspect_schema` lists relations alone, which no
+  // Kubernetes kind is, so no object name, a Secret's included, reaches it.
+  kubernetes: true,
   // Outside this version, as for etcd, Oxia and S3: a read whose completeness cannot be proved is not a
   // read an agent should be handed without a reader looking at it.
   mqtt: false,
-  // Outside this version, as for etcd, Oxia, S3, Kubernetes and MQTT: the provider implements no read-only query
-  // path an MCP client could drive, and every read is billed to the user's project.
+  // Outside this version, as for etcd, Oxia, S3 and MQTT: the provider implements no read-only query path an MCP
+  // client could drive, and every read is billed to the user's project.
   firestore: false,
   // Offered for the two metadata tools, carrying stream names and the fixed read columns only; `run_read_query` does
   // not serve it, because the provider implements no `queryReadOnly`.
@@ -578,6 +579,65 @@ export const MCP_EXPOSABLE: Readonly<Record<DatabaseType, boolean>> = Object.fre
   // whole model can answer true here without a `queryReadOnly` of its own.
   sparkplug: false,
   libredb: true,
+});
+
+/**
+ * Which shipped engines an MCP client may run a statement on (all-providers design 6.1): a second record beside
+ * `MCP_EXPOSABLE`, which also opens `list_connections` and `inspect_schema` and so cannot be turned false to keep a
+ * statement tool closed. An MCP statement tool serves an engine only where agent mode executes statements on it,
+ * `MCP_EXPOSABLE` offers it and this record answers true (`src/lib/mcp/tools/served-engines.ts`), so an engine that
+ * joins agent mode does not open to MCP as a side effect: its row stays false until a change of its own opens it.
+ *
+ * True for the five SQL engines `run_read_query` served before this record existed, so nothing moved when it landed,
+ * for MongoDB, whose command `run_mongo_command` reads, and for Kubernetes, whose kubectl line `run_kubectl_read` reads
+ * under the agent's machine redaction. An exhaustive Record for the reason `EXTERNAL` gives, frozen like the records
+ * above it, and held false wherever `MCP_EXPOSABLE` is false and true only for an engine agent mode executes on by
+ * `tests/unit/db/compatibility.test.ts`.
+ */
+export const MCP_STATEMENT_READ: Readonly<Record<DatabaseType, boolean>> = Object.freeze({
+  postgres: true,
+  bigquery: false,
+  snowflake: false,
+  spark: false,
+  mysql: true,
+  sqlite: true,
+  libsql: false,
+  duckdb: true,
+  oracle: false,
+  db2: false,
+  mssql: true,
+  clickhouse: false,
+  druid: false,
+  trino: false,
+  cassandra: false,
+  elasticsearch: false,
+  opensearch: false,
+  mongodb: true,
+  couchbase: false,
+  redis: false,
+  prometheus: false,
+  kafka: false,
+  etcd: false,
+  neo4j: false,
+  milvus: false,
+  qdrant: false,
+  weaviate: false,
+  influxdb: false,
+  influxdb3: false,
+  oxia: false,
+  databend: false,
+  s3: false,
+  kubernetes: true,
+  mqtt: false,
+  firestore: false,
+  rabbitmq: false,
+  opcua: false,
+  mtconnect: false,
+  modbus: false,
+  netconf: false,
+  snmp: false,
+  sparkplug: false,
+  libredb: false,
 });
 
 /**

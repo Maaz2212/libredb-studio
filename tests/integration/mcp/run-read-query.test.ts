@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { open, table } from "@libredb/libredb";
 import { getServerAuditBuffer } from "@/lib/audit";
+import { OffsetUnsupportedError } from "@/lib/db/errors";
 import { LibreDBProvider } from "@/lib/db/providers/embedded/libredb";
 import { DuckDBProvider } from "@/lib/db/providers/sql/duckdb";
 import { SnowflakeProvider } from "@/lib/db/providers/sql/snowflake/index";
@@ -18,7 +19,7 @@ import type { DatabaseProvider } from "@/lib/db/types";
 import { logger } from "@/lib/logger";
 import { McpConnectionContext } from "@/lib/mcp/context";
 import { MCP_CANCELLED_TEXT, MCP_NOT_VISIBLE_TEXT, MCP_RESULT_CAP_BYTES, MCP_UNTRUSTED_NOTICE } from "@/lib/mcp/output";
-import { MORE_ROWS_THAN_PAGEABLE_HINT, ROW_OVER_CAP_TEXT, timeoutText } from "@/lib/mcp/tools/read-query-limits";
+import { moreRowsThanPageableHint, ROW_OVER_CAP_TEXT, timeoutText } from "@/lib/mcp/tools/read-query-limits";
 import {
   RUN_READ_QUERY_DESCRIPTION,
   RUN_READ_QUERY_ENGINES,
@@ -145,9 +146,9 @@ function fakeContext(provider: Partial<DatabaseProvider>, type: DatabaseType = "
   } as unknown as McpConnectionContext;
 }
 
-/** The answer to a call on an engine the tool does not serve. */
-const notServed = (label: string) =>
-  `run_read_query cannot run on this connection: this tool does not serve ${label}; use inspect_schema there. It runs on PostgreSQL, SQLite, DuckDB, SQL Server and MySQL.`;
+/** The answer to a call on an engine the tool does not serve, naming the tool that does serve it. */
+const notServed = (label: string, elsewhere = "inspect_schema") =>
+  `run_read_query cannot run on this connection: this tool does not serve ${label}; use ${elsewhere} there. It runs on PostgreSQL, SQLite, DuckDB, SQL Server and MySQL.`;
 
 const mcpEvents = () =>
   getServerAuditBuffer()
@@ -222,7 +223,7 @@ describe("paging and cutting", () => {
     expect(result.structuredContent).toMatchObject({
       row_count: 100,
       pagination: { hasMore: true, nextOffset: null, wasLimited: false },
-      hint: MORE_ROWS_THAN_PAGEABLE_HINT,
+      hint: moreRowsThanPageableHint("sqlite"),
     });
   });
 
@@ -287,7 +288,10 @@ describe("the boundary", () => {
       const result = await direct({ connection_id: "seed:shop", sql: "DROP TABLE numbers" });
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain("NON_READ_STATEMENT");
-      expect(result.content[0].text).toContain("a SELECT (a WITH is fine), VALUES, TABLE, or EXPLAIN without ANALYZE");
+      // SQLite's own forms: it has no TABLE statement, so the refusal does not offer one.
+      expect(result.content[0].text).toContain(
+        "On this engine run_read_query runs one read-only statement: a SELECT (a WITH is fine), VALUES, or EXPLAIN.",
+      );
       expect(reads.calls).toBe(0);
       expect(mcpEvents()).toEqual([
         expect.objectContaining({ target: "mcp/decision", reason: "mcp_statement_refused", connectionName: "shop" }),
@@ -323,10 +327,11 @@ describe("the boundary", () => {
     ["a SELECT", "SELECT 1"],
     ["its own JSON command", '{"operation":"find","collection":"orders"}'],
   ])(
-    "a MongoDB connection sent %s is refused before the fence and before anything is acquired (#1614)",
+    "a MongoDB connection sent %s is refused before the fence and before anything is acquired, naming run_mongo_command",
     async (_sent, sql) => {
       // Agent mode executes MongoDB, so its provider has a read-only path; this tool's input is SQL,
-      // and the provider handed out here would answer, so only the gate keeps the call off it.
+      // and the provider handed out here would answer, so only the gate keeps the call off it. Its
+      // JSON command is read by its own arm, which the refusal names.
       const queryReadOnly = mock(async () => ({ rows: [{ one: 1 }], fields: ["one"], rowCount: 1, executionTime: 0 }));
       const provider = {
         getCapabilities: () => ({}),
@@ -336,7 +341,10 @@ describe("the boundary", () => {
       const context = fakeContext(provider as unknown as Partial<DatabaseProvider>, "mongodb");
       const acquire = spyOn(context, "acquire");
       const result = await direct({ connection_id: "seed:fake", sql }, undefined, context);
-      expect(result).toEqual({ isError: true, content: [{ type: "text", text: notServed("MongoDB") }] });
+      expect(result).toEqual({
+        isError: true,
+        content: [{ type: "text", text: notServed("MongoDB", "run_mongo_command") }],
+      });
       expect(acquire).not.toHaveBeenCalled();
       expect(queryReadOnly).not.toHaveBeenCalled();
       expect(mcpEvents()).toEqual([
@@ -367,7 +375,7 @@ describe("the boundary", () => {
     try {
       const listed = (await session.client.callTool({ name: "list_connections", arguments: {} })) as Answered;
       expect(listed.structuredContent?.connections).toEqual([
-        { id: "seed:warehouse", name: "warehouse", engine: "snowflake" },
+        { id: "seed:warehouse", name: "warehouse", engine: "snowflake", read_tool: null },
       ]);
     } finally {
       await session.close();
@@ -387,8 +395,8 @@ describe("the boundary", () => {
     expect(result.content[0].text).toContain("cannot target an in-memory SQLite database");
   });
 
-  test("the tool module never calls query()", () => {
-    const source = readFileSync(join(import.meta.dir, "../../../src/lib/mcp/tools/run-read-query.ts"), "utf8");
+  test("the statement core never calls query()", () => {
+    const source = readFileSync(join(import.meta.dir, "../../../src/lib/mcp/tools/run-statement.ts"), "utf8");
     expect(source).not.toMatch(/\.query\(/);
     expect(source).toContain("queryReadOnly");
   });
@@ -727,6 +735,49 @@ describe("a provider the profile seam should never hand out", () => {
     expect(mcpEvents().at(-1)).toMatchObject({ reason: "mcp_execution_failed" });
   });
 
+  // Elasticsearch and Cassandra refuse an offset they cannot page by throwing OffsetUnsupportedError from
+  // prepareQuery, so the refusal is the offset rule's, in the provider's own words, and nothing runs (design 6.2).
+  const CQL_REFUSAL =
+    "CQL has no OFFSET clause, so results after the first page cannot be requested here. Narrow the statement with a WHERE clause on the partition key, or raise the row limit, instead of paging.";
+  const preparingThrows = (error: Error) => {
+    const queryReadOnly = mock(async () => ({ rows: [], fields: [], rowCount: 0, executionTime: 0 }));
+    const provider = {
+      getCapabilities: () => ({}),
+      queryReadOnly,
+      prepareQuery: () => {
+        throw error;
+      },
+    };
+    return { queryReadOnly, context: fakeContext(provider as unknown as Partial<DatabaseProvider>) };
+  };
+
+  test("whose preparation refuses an offset is answered in the provider's words by the offset rule, and nothing runs", async () => {
+    const { queryReadOnly, context } = preparingThrows(new OffsetUnsupportedError(CQL_REFUSAL, "cassandra"));
+    const result = await direct(
+      { connection_id: "seed:fake", sql: "SELECT id FROM numbers", offset: 100 },
+      undefined,
+      context,
+    );
+    expect(result).toEqual({ isError: true, content: [{ type: "text", text: CQL_REFUSAL }] });
+    expect(queryReadOnly).not.toHaveBeenCalled();
+    expect(mcpEvents().at(-1)).toMatchObject({ target: "mcp/execution", reason: "mcp_offset_unsupported" });
+  });
+
+  test("whose preparation fails some other way under an offset is still the engine's failure, never an offset refusal", async () => {
+    const { queryReadOnly, context } = preparingThrows(new TypeError("cannot read properties of undefined"));
+    const result = await direct(
+      { connection_id: "seed:fake", sql: "SELECT id FROM numbers", offset: 100 },
+      undefined,
+      context,
+    );
+    expect(result.content[1]).toEqual({
+      type: "text",
+      text: "The database refused or failed the call: cannot read properties of undefined",
+    });
+    expect(queryReadOnly).not.toHaveBeenCalled();
+    expect(mcpEvents().at(-1)).toMatchObject({ reason: "mcp_execution_failed" });
+  });
+
   test("on a connection that reaches a whole server, a call naming no database is told which to name (#1530)", async () => {
     const queryReadOnly = mock(async () => ({ rows: [], fields: [], rowCount: 0, executionTime: 0 }));
     const provider = {
@@ -759,6 +810,57 @@ describe("a provider the profile seam should never hand out", () => {
       type: "text",
       text: "The database refused or failed the call: declaration unreadable",
     });
+  });
+});
+
+describe("an engine whose paging clause is its own", () => {
+  // SQL Server pages with ORDER BY ... OFFSET ... FETCH, so every text that names a paging clause must read the
+  // connection's engine, not one engine's words for all (all-providers design 6.2, V11).
+  const MSSQL_PAGING = "ORDER BY ... OFFSET m ROWS FETCH NEXT n ROWS ONLY";
+  const sqlServer = (rows: Record<string, unknown>[]) => {
+    const queryReadOnly = mock(async () => ({ rows, fields: ["id"], rowCount: rows.length, executionTime: 1 }));
+    const provider = {
+      getCapabilities: () => ({}),
+      queryReadOnly,
+      prepareQuery: (query: string, options: { limit?: number; offset?: number } = {}) => ({
+        query,
+        wasLimited: false,
+        limit: options.limit ?? 0,
+        offset: options.offset ?? 0,
+      }),
+    };
+    return { queryReadOnly, context: fakeContext(provider as unknown as Partial<DatabaseProvider>, "mssql") };
+  };
+
+  test("an offset on a query with its own TOP is refused with SQL Server's paging clause", async () => {
+    const { queryReadOnly, context } = sqlServer([]);
+    const result = await direct(
+      { connection_id: "seed:fake", sql: "SELECT TOP 5 id FROM numbers", offset: 10 },
+      undefined,
+      context,
+    );
+    expect(result).toEqual({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: `This query has its own LIMIT or TOP, so it cannot be paged with offset. Remove it and page with offset, or page it in SQL: ${MSSQL_PAGING}.`,
+        },
+      ],
+    });
+    expect(queryReadOnly).not.toHaveBeenCalled();
+  });
+
+  test("more rows than a query that cannot be paged holds are hinted with SQL Server's paging clause", async () => {
+    const { context } = sqlServer([{ id: 1 }, { id: 2 }]);
+    const result = await direct(
+      { connection_id: "seed:fake", sql: "SELECT TOP 2 id FROM numbers", max_rows: 1 },
+      undefined,
+      context,
+    );
+    expect(result.structuredContent?.pagination).toMatchObject({ hasMore: true, nextOffset: null, wasLimited: false });
+    expect(result.structuredContent?.hint).toBe(moreRowsThanPageableHint("mssql"));
+    expect(result.structuredContent?.hint).toContain(`Page it in SQL: ${MSSQL_PAGING}.`);
   });
 });
 

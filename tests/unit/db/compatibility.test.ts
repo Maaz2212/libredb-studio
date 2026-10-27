@@ -18,6 +18,7 @@ import {
   EXTERNAL_DATABASE_TYPES,
   isExternalDatabaseType,
   MCP_EXPOSABLE,
+  MCP_STATEMENT_READ,
   OPENS_LOCAL_FILE,
   OPENS_SERVER_LEVEL_WITHOUT_DATABASE,
   READ_ONLY_ENFORCED,
@@ -25,6 +26,7 @@ import {
   SHIPPED_DATABASE_TYPES,
   SINGLE_WRITER_FILE,
 } from "@/lib/db/compatibility";
+import { AGENT_EXECUTION_ENGINES } from "@/lib/agent/engine-support";
 import { createDatabaseProvider } from "@/lib/db/factory";
 import { isFileBased } from "@/lib/db-ui-config";
 import type { DatabaseType } from "@/lib/types";
@@ -496,13 +498,14 @@ describe("wire-compatibility registry", () => {
     for (const server of ["MinIO", "Silo", "Garage", "RustFS"]) expect(relatives).not.toContain(server);
   });
 
-  test("kubernetes ships as an external engine that keeps the read-only mode, is not offered to MCP and has no relatives", () => {
+  test("kubernetes ships as an external engine that keeps the read-only mode, is offered to MCP and has no relatives", () => {
     // A cluster the user already runs, reached over the API server's REST API; no relative is recorded.
     expect(SHIPPED_DATABASE_TYPES).toContain("kubernetes");
     expect(isExternalDatabaseType("kubernetes")).toBe(true);
     expect(compatibleEnginesFor("kubernetes")).toEqual([]);
     expect(READ_ONLY_ENFORCED.kubernetes).toBe(true);
-    expect(MCP_EXPOSABLE.kubernetes).toBe(false);
+    // Offered with every answer machine-redacted (all-providers ruling 21).
+    expect(MCP_EXPOSABLE.kubernetes).toBe(true);
     expect(READS_FILE_ACCESS_POSTURE.kubernetes).toBe(false);
     expect(CONNECTION_FORM_URI_MODE.kubernetes).toBe(false);
     expect(CONNECTION_STRING_ACCEPTED.kubernetes).toBe(false);
@@ -664,7 +667,7 @@ describe("MCP_EXPOSABLE (#1089)", () => {
     expect(Object.isFrozen(MCP_EXPOSABLE)).toBe(true);
   });
 
-  test("offers MCP for every shipped engine but etcd, oxia, s3, kubernetes, mqtt, firestore, opcua, modbus and netconf", () => {
+  test("offers MCP for every shipped engine but etcd, oxia, s3, mqtt, firestore, opcua, modbus and netconf", () => {
     // An engine MCP is not offered for answers false with its registration, and is named here then.
     // Modbus refuses for a reason of its own, written beside its registration in
     // compatibility.ts rather than repeated here.
@@ -672,7 +675,6 @@ describe("MCP_EXPOSABLE (#1089)", () => {
       "etcd",
       "oxia",
       "s3",
-      "kubernetes",
       "mqtt",
       "firestore",
       "opcua",
@@ -680,6 +682,45 @@ describe("MCP_EXPOSABLE (#1089)", () => {
       "netconf",
       "snmp",
       "sparkplug",
+    ]);
+  });
+});
+
+/**
+ * `MCP_STATEMENT_READ` (all-providers design 6.1): whether an MCP client may run a statement on an engine, a second
+ * record beside `MCP_EXPOSABLE` so that MCP read opens per engine by its own reviewed change, never as a side effect of
+ * the engine joining agent mode. It can only narrow what the two records it sits under allow.
+ */
+describe("MCP_STATEMENT_READ", () => {
+  test("answers for every shipped type-id and for nothing else", () => {
+    expect(Object.keys(MCP_STATEMENT_READ).sort()).toEqual([...SHIPPED_DATABASE_TYPES].sort());
+  });
+
+  test("is frozen, so no reader can open or close MCP read for an engine at run time", () => {
+    expect(Object.isFrozen(MCP_STATEMENT_READ)).toBe(true);
+  });
+
+  test("is false wherever MCP_EXPOSABLE is false", () => {
+    for (const type of SHIPPED_DATABASE_TYPES.filter((candidate) => !MCP_EXPOSABLE[candidate])) {
+      expect([type, MCP_STATEMENT_READ[type]]).toEqual([type, false]);
+    }
+  });
+
+  test("is true only for an engine agent mode executes statements on", () => {
+    const open = SHIPPED_DATABASE_TYPES.filter((type) => MCP_STATEMENT_READ[type]);
+    expect(open.filter((type) => !AGENT_EXECUTION_ENGINES.includes(type))).toEqual([]);
+  });
+
+  test("opens the five SQL engines run_read_query served before the record existed, MongoDB, Kubernetes, and no other", () => {
+    // MongoDB opened with run_mongo_command, Kubernetes with run_kubectl_read.
+    expect(SHIPPED_DATABASE_TYPES.filter((type) => MCP_STATEMENT_READ[type])).toEqual([
+      "postgres",
+      "mysql",
+      "sqlite",
+      "duckdb",
+      "mssql",
+      "mongodb",
+      "kubernetes",
     ]);
   });
 });

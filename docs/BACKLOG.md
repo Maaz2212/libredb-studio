@@ -28,7 +28,7 @@ None of it is a GitHub issue.
 **Sections**
 
 - [SQL statement reading](#sql-statement-reading) — S2-S9 · 6
-- [Drivers and connections](#drivers-and-connections) — D1-D390, U17 · 284
+- [Drivers and connections](#drivers-and-connections) — D1-D391, U17 · 285
 - [Value interpolation](#value-interpolation) — V1
 - [Row editing](#row-editing) — R1–R3 · 3
 - [Studio UI and query execution](#studio-ui-and-query-execution) — X2-X25, U2-U148 · 134
@@ -41,7 +41,7 @@ None of it is a GitHub issue.
 - [Security Phase 3 deferrals](#security-phase-3-deferrals) — K4-K8 · 5
 - [Security scanner triage](#security-scanner-triage) — SCAN1-SCAN2 · 2
 - [Agent M1 deferrals (#328)](#agent-m1-deferrals-328) — A2–A8 · 5
-- [Agent M2 deferrals (#329)](#agent-m2-deferrals-329) — B2-B128 · 61
+- [Agent M2 deferrals (#329)](#agent-m2-deferrals-329) — B2-B128 · 59
 - [Passkey deferrals (#785)](#passkey-deferrals-785) — PK1-PK9 · 8
 - [MCP server deferrals (#246)](#mcp-server-deferrals-246) — MCP1-MCP3 · 3
 - [Governance follow-ups](#governance-follow-ups) — GOV1-GOV30 · 30
@@ -3677,16 +3677,14 @@ Found 2026-10-16 in the review of #1790 (issue #1614).
 
 **Done when:** the MongoDB editor path classes `MongoNetworkError`, `MongoNetworkTimeoutError` and `MongoServerSelectionError` as `ConnectionError` by class name, as `TRANSPORT_FAILURES` does, in `query()`, `runMaintenance()` and those four object methods alike, so an object route answers those three as a connection failure rather than an internal error, every other engine's classification is unchanged, and a test pins each class on `query()` and on an object route.
 
-### D367. The read-only budget refusal sentences are typed out in each provider
+### D367. MySQL's and MongoDB's deadline refusal is no prefix MCP classifies
 
-The row and byte refusals of `queryReadOnly` ("Read-only execution exceeded the row budget: N rows > M allowed", and its byte twin) are written out by hand in seven files: `postgres.ts`, `sqlite.ts`, `duckdb/index.ts`, `mssql.ts` and `mysql.ts` under `src/lib/db/providers/sql/`, `src/lib/db/providers/platform/kubernetes/console/context.ts` and `src/lib/db/providers/document/mongodb/agent-read.ts`.
-They are a parsed contract rather than prose: `otherStatementAdvice` in `src/lib/agent/tools.ts` and `rowBudgetIn` in `src/lib/agent/context-snapshot.ts` read the numbers back with one pattern, and MCP's `run_read_query` classifies a refusal by the prefixes of `READ_ONLY_REFUSALS` (`src/lib/mcp/tools/read-query-limits.ts`).
-The census that holds those prefixes to the files that write them (`RAISED_IN` in `tests/unit/mcp/read-query-limits.test.ts`) leaves out `mysql.ts`, which MCP reaches, and MySQL's deadline refusal ("exceeded the statement deadline", which MongoDB's reuses) is no prefix of `READ_ONLY_REFUSALS` at all.
-Each copy is pinned by its own provider's tests, so a reworded sentence fails there, but nothing makes the next provider write the same one.
+The row and byte refusals of `queryReadOnly` are built by `rowBudgetSentence` and `byteBudgetSentence` beside `assertReadOnlyBudget` in `src/lib/db/providers/sql/read-only-budget.ts`, which every provider with a `queryReadOnly` calls, and `tests/unit/mcp/read-query-limits.test.ts` fails when a provider file types either sentence out again.
+MySQL's deadline refusal ("Read-only execution exceeded the statement deadline", in `src/lib/db/providers/sql/mysql.ts`, which MongoDB's in `src/lib/db/providers/document/mongodb/agent-read.ts` reuses) is still no prefix of `READ_ONLY_REFUSALS` in `src/lib/mcp/tools/read-query-limits.ts`, so MCP's `run_read_query` classifies it as the timeout only when it settles at or after the call's own deadline, and as an engine error before it.
 
-Found 2026-10-16 in the review of #1790 (issue #1614), which added the MongoDB copy; the other six are older.
+Found 2026-10-16 in the review of #1790 (issue #1614).
 
-**Done when:** the sentences are built by constructors beside `assertReadOnlyBudget` in `src/lib/db/providers/sql/read-only-budget.ts`, or at a provider-neutral path it moves to, every provider that implements `queryReadOnly` uses them, `RAISED_IN` lists every provider MCP reaches, and MySQL's deadline refusal is either a `READ_ONLY_REFUSALS` prefix of kind `time` or worded with one that is.
+**Done when:** MySQL's deadline refusal is either a `READ_ONLY_REFUSALS` prefix of kind `time` or worded with one that is, and `RAISED_IN` in `tests/unit/mcp/read-query-limits.test.ts` names the files that raise it.
 
 ### D368. Agent connections on PostgreSQL, MySQL and SQL Server carry no application name
 
@@ -3933,6 +3931,16 @@ Measured 2026-10-21 by the VS Code extension's e2e leg (PR 14): a find with `$wh
 Found 2026-10-21 during the VS Code extension work (PR 14), and deferred because it changes the MongoDB provider's query path for the web too.
 
 **Done when:** the provider passes the connection's `queryTimeout` as `maxTimeMS` on every query operation, a test per operation pins it, and the extension's MongoDB run ends with `TIMEOUT_ERROR` at that bound.
+
+### D391. A Secret's name in a free-text Kubernetes message reaches an agent and an MCP client unmasked
+
+Machine redaction (`src/lib/db/providers/platform/kubernetes/machine-redaction.ts`) masks a Secret's name in every field defined to hold one, and leaves free text as the server wrote it.
+A pod's status and condition messages, an event's `message` and a log line can carry a Secret's name, such as `secret "db-credentials" not found` in a pod's `FailedMount` event, so that name reaches an agent run and an MCP `run_kubectl_read` answer alike.
+The residue is stated in section 9 of `docs/providers/kubernetes.md`, in `docs/AGENT.md` and in `run_kubectl_read`'s description; Secret keys and label values pass as well, which is not this entry.
+
+Found 2026-10-27 in the review of the all-providers PR 0.4 (MCP `run_kubectl_read`), and deferred by the team lead's ruling 36, which narrowed that PR's acceptance to the fields defined to hold a Secret name.
+
+**Done when:** a Secret name the cluster holds is masked inside status, condition and event messages and log lines on the machine path, for agent mode and MCP by the same code, a test per message source pins a planted name, and the residue lines in `docs/providers/kubernetes.md`, `docs/AGENT.md` and the tool description drop the free-text messages.
 
 ## Value interpolation
 
@@ -7608,7 +7616,7 @@ Reproduced 2026-09-23 on `main` and on the #1085 branch: `readPlanStatement` ove
 Found 2026-09-23 in the #1085 review.
 Not fixed in #1085: the alias predates it, and that PR changes no existing arm's behaviour (#1085, section 3.5).
 
-**Done when:** `fenceTagEngine("cql")` is `"cassandra"`, a `cql` block before a `postgres` block on a PostgreSQL plan run records the PostgreSQL statement, a `cql`-only closing there records none and is asked for one, a `cql` block on a Cassandra run is still the deliverable, and the `cql` test in `tests/unit/lib/sql/fence-tags.test.ts` and the comment at the `cassandra` entry state the type-id rule.
+**Done when:** `fenceTagEngine("cql")` is `"cassandra"`, a `cql` block before a `postgres` block on a PostgreSQL plan run records the PostgreSQL statement, a `cql`-only closing there records none and is asked for one, a `cql` block on a Cassandra run is still the deliverable, the `cql` test in `tests/unit/lib/sql/fence-tags.test.ts` and the comment at the `cassandra` entry state the type-id rule, and the `KNOWN_GAPS` entry of that file's alias-registry test is deleted.
 
 ### B87. A run's inventory count names every kind with the engine's own noun
 
@@ -7693,7 +7701,7 @@ Both execution paths guard a statement with SQL readers (`src/lib/db/operations/
 
 Found 2026-10-03 while designing the Neo4j provider (spec 6.4).
 
-**Done when:** `Neo4jProvider` implements `queryReadOnly` through the same policy, gate and READ session as the editor, `AGENT_EXECUTION_ENGINES` names Neo4j, MCP serves its Cypher through the non-SQL arm B117 records (`RUN_READ_QUERY_ENGINES` holds SQL engines alone), and an agent run and an MCP call each drive a `LOAD CSV` and a write to their refusal in a test.
+**Done when:** `Neo4jProvider` implements `queryReadOnly` through the same policy, gate and READ session as the editor, `AGENT_EXECUTION_ENGINES` names Neo4j, MCP serves its Cypher through its own arm in `MCP_STATEMENT_ARMS` (`src/lib/mcp/tools/statement-arms.ts`) (`RUN_READ_QUERY_ENGINES` holds SQL engines alone), and an agent run and an MCP call each drive a `LOAD CSV` and a write to their refusal in a test.
 
 ### B94. InfluxDB has no agent execution and no MCP `run_read_query`
 
@@ -7702,7 +7710,7 @@ Both execution paths guard a statement with SQL readers (`src/lib/db/operations/
 
 Found 2026-10-04 while designing the InfluxDB provider (ruling R10).
 
-**Done when:** each type implements `queryReadOnly` under a statement contract of its own (the InfluxQL policy for `influxdb`, the DataFusion policy for `influxdb3`), agent execution serves both, and MCP serves `influxdb3` through `run_read_query` and `influxdb`'s InfluxQL through the non-SQL arm B117 records, with tests.
+**Done when:** each type implements `queryReadOnly` under a statement contract of its own (the InfluxQL policy for `influxdb`, the DataFusion policy for `influxdb3`), agent execution serves both, and MCP serves `influxdb3` through `run_read_query` and `influxdb`'s InfluxQL through its own arm in `MCP_STATEMENT_ARMS` (`src/lib/mcp/tools/statement-arms.ts`), with tests.
 
 ### B100. Oxia has no agent execution and no MCP surface
 
@@ -7710,7 +7718,7 @@ Found 2026-10-04 while designing the InfluxDB provider (ruling R10).
 
 Found 2026-10-04 while designing the Oxia provider (DECISIONS O14).
 
-**Done when:** an MCP metadata surface that never returns a key value is designed and the non-SQL MCP arm B117 records serves a read command under the `oxia` grammar, with tests; cited in `docs/AGENT.md` beside B93.
+**Done when:** an MCP metadata surface that never returns a key value is designed and its own arm in `MCP_STATEMENT_ARMS` (`src/lib/mcp/tools/statement-arms.ts`) serves a read command under the `oxia` grammar, with tests; cited in `docs/AGENT.md` beside B93.
 
 B100 rather than the next free id: InfluxDB, built at the same time, took B94, and the gap kept the two from racing for an id.
 
@@ -7742,14 +7750,7 @@ Found 2026-10-07 while designing the Databend provider (design 5.7).
 
 Found 2026-10-09 while designing the S3 provider.
 
-**Done when:** an MCP metadata surface that lists buckets and never returns an object key is designed; `MCP_EXPOSABLE.s3` turns true for it; and agent execution serves a `queryReadOnly` that runs one console read command, which MCP serves through the non-SQL arm B117 records, with tests; cited in `docs/AGENT.md` beside B103.
-
-### B105. Kubernetes has no MCP surface
-
-`MCP_EXPOSABLE.kubernetes` is false and the MCP fence reads SQL only, so MCP `run_read_query` and `inspect_schema` refuse a Kubernetes connection, while agent mode reads it through `kubectl.query.read` under machine redaction (`docs/providers/kubernetes.md` section 9).
-Found 2026-10-10 while designing the Kubernetes provider; narrowed to its MCP half when agent execution landed.
-
-**Done when:** an MCP surface for kubectl reads is designed that applies the agent's machine redaction to every answer, `MCP_EXPOSABLE.kubernetes` turns true for it, and the non-SQL MCP arm B117 records serves it, with tests; cited in `docs/AGENT.md` beside B104.
+**Done when:** an MCP metadata surface that lists buckets and never returns an object key is designed; `MCP_EXPOSABLE.s3` turns true for it; and agent execution serves a `queryReadOnly` that runs one console read command, which MCP serves through its own arm in `MCP_STATEMENT_ARMS` (`src/lib/mcp/tools/statement-arms.ts`), with tests; cited in `docs/AGENT.md` beside B103.
 
 ### B107. Firestore has no agent execution and no MCP surface
 
@@ -7758,7 +7759,7 @@ Every Firestore read is billed, and no read contract for the query chain under a
 
 Found 2026-10-12 while designing the Firestore provider.
 
-**Done when:** an MCP metadata surface that reads no document is designed, `MCP_EXPOSABLE.firestore` turns true for it, and agent execution serves a `queryReadOnly` that runs one console statement under a per-run read bound, which MCP serves through the non-SQL arm B117 records, with tests; cited in `docs/AGENT.md` beside B105.
+**Done when:** an MCP metadata surface that reads no document is designed, `MCP_EXPOSABLE.firestore` turns true for it, and agent execution serves a `queryReadOnly` that runs one console statement under a per-run read bound, which MCP serves through its own arm in `MCP_STATEMENT_ARMS` (`src/lib/mcp/tools/statement-arms.ts`), with tests; cited in `docs/AGENT.md` beside B104.
 
 ### B108. RabbitMQ has no agent execution and no MCP `run_read_query`
 
@@ -7766,7 +7767,7 @@ Found 2026-10-12 while designing the Firestore provider.
 
 Found 2026-10-12 while designing the RabbitMQ provider.
 
-**Done when:** a stream read request is designed as an agent statement with its own read policy and bounds, `queryReadOnly` serves it, agent execution runs it and MCP runs it through the non-SQL arm B117 records, with tests; cited in `docs/AGENT.md` beside B105.
+**Done when:** a stream read request is designed as an agent statement with its own read policy and bounds, `queryReadOnly` serves it, agent execution runs it and MCP runs it through its own arm in `MCP_STATEMENT_ARMS` (`src/lib/mcp/tools/statement-arms.ts`), with tests; cited in `docs/AGENT.md` beside B104.
 
 ### B109. The schema docs route puts database-written names in the prompt without the untrusted-content fence
 
@@ -7839,17 +7840,6 @@ Found 2026-10-14 while building agent execution on Kubernetes.
 Found 2026-10-14 while building agent execution on Kubernetes.
 
 **Done when:** no em or en dash remains in `docs/FEATURES.md`; cited in `docs/AGENT.md`.
-
-### B117. MongoDB has no MCP run_read_query arm
-
-MCP `run_read_query` takes one SQL statement (`sql` in `RunReadQueryInputSchema`, `src/lib/mcp/tools/run-read-query.ts`) and serves `RUN_READ_QUERY_TYPES` alone: the engines agent mode executes on whose statement language is SQL and that MCP is offered for.
-MongoDB is offered to MCP for `inspect_schema`, and agent mode executes its JSON command, but `runReadQuery` refuses a MongoDB connection as soon as it resolves, before anything is acquired, with "this tool does not serve MongoDB; use inspect_schema there".
-So an MCP client can list a MongoDB database's collections and their fields and cannot read a document.
-What it needs is an arm for a statement language that is not SQL, and the MCP halves of B93, B94, B100, B104, B105, B107 and B108 wait on the same arm.
-
-Filed 2026-10-17 with agent execution on MongoDB (#1790), which kept MCP out of that change (issue #1614, decision 2).
-
-**Done when:** MCP serves a read in a non-SQL statement language through a tool whose input is that language's own, on MongoDB the agent's command envelope under the same admission and execution profile as `mongo.query.read`; its description and its handler gate read one list, as `RUN_READ_QUERY_TYPES` does; and a test drives a MongoDB read and a refused write through it; cited in `docs/AGENT.md`.
 
 ### B118. MongoDB auto-execute needs a plan reading and a working replay
 

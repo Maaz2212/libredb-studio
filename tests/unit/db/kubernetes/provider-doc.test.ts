@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { DB_UI_CONFIG } from "@/lib/db-ui-config";
-import { MCP_EXPOSABLE, READ_ONLY_ENFORCED } from "@/lib/db/compatibility";
+import { MCP_EXPOSABLE, MCP_STATEMENT_READ, READ_ONLY_ENFORCED } from "@/lib/db/compatibility";
 import { NAMESPACE_CAP_NOTICE } from "@/lib/db/providers/platform/kubernetes/connect-warnings";
 import { KUBERNETES_CONNECTION_SENTENCES } from "@/lib/db/providers/platform/kubernetes/connection-options";
 import {
@@ -134,13 +134,20 @@ describe("the limits table is limits.ts", () => {
 });
 
 describe("the declarations the doc states", () => {
-  test("read-only enforced, and MCP not offered", () => {
+  test("read-only enforced, and MCP offered through run_kubectl_read, inspect_schema refused by name", () => {
     expect(READ_ONLY_ENFORCED.kubernetes).toBe(true);
-    expect(MCP_EXPOSABLE.kubernetes).toBe(false);
-    expect(sectionOf("## 9. Capabilities, AI and MCP")).toContain("MCP is not offered for Kubernetes");
+    expect(MCP_EXPOSABLE.kubernetes).toBe(true);
+    expect(MCP_STATEMENT_READ.kubernetes).toBe(true);
+    const section = sectionOf("## 9. Capabilities, AI and MCP");
+    expect(section).toContain("MCP clients read a Kubernetes connection with `run_kubectl_read`");
+    expect(section).toContain(
+      "`inspect_schema` refuses a Kubernetes connection by name and names `run_kubectl_read` in its refusal",
+    );
+    expect(section).not.toContain("`inspect_schema` lists no table");
+    expect(section).not.toContain("B105");
   });
 
-  test("section 9 carries the residue verbatim, and section 14 names only the MCP half of B105", () => {
+  test("section 9 carries the residue verbatim, and section 14 names no MCP limitation and the plan-mode wording", () => {
     const nine = sectionOf("## 9. Capabilities, AI and MCP");
     for (const line of [
       "Log lines and event messages are free text the server wrote; a credential an application prints reaches the model.",
@@ -151,7 +158,11 @@ describe("the declarations the doc states", () => {
       "The connection's Namespaces field lists the tree; it does not bound a statement, which may use -A or any -n.",
     ])
       expect(nine).toContain(line);
-    expect(sectionOf("## 14. Known limitations")).toContain("No MCP (B105)");
+    expect(nine).toContain(
+      "Masking a Secret name inside free-text status, event and log messages, on agent and MCP reads alike, is D391 in [`docs/BACKLOG.md`](../BACKLOG.md).",
+    );
+    expect(sectionOf("## 14. Known limitations")).not.toContain("No MCP");
+    expect(sectionOf("## 14. Known limitations")).toContain("(B115)");
     expect(sectionOf("## 4. Connection")).toContain("agent token");
   });
 

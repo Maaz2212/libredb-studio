@@ -3394,17 +3394,16 @@ describe("SQLiteProvider agent read-only execution profile (#328)", () => {
     expect(rowBudgetIn((thrown as QueryError).message)).toEqual({ projected: 3, allowed: 2 });
 
     /*
-      PostgreSQL formats the same sentence in its own file and cannot be driven from
-      here without a server, so its copy is pinned against the SOURCE. Weaker than the
-      live arm above — it proves the template still reads that way, not that a running
-      engine produces it — and still red on a reword, which is the property that matters.
+      PostgreSQL raises the same sentence and cannot be driven from here without a
+      server, so its call is pinned against the SOURCE: it builds the refusal with the
+      constructor SQLite's run above went through (D367). Weaker than the live arm above,
+      since it proves the call is there and not that a running engine reaches it, and
+      still red if PostgreSQL types its own copy again.
     */
     // Anchored to this file, like every other source read in the suite: a cwd-relative read
     // would fail here naming a path rather than the rule it is checking.
     const postgresSource = readFileSync(join(REPO_ROOT, "src/lib/db/providers/sql/postgres.ts"), "utf8");
-    expect(postgresSource).toContain(
-      "Read-only execution exceeded the row budget: ${result.rows.length} rows > ${budget.maxResultRows} allowed",
-    );
+    expect(postgresSource).toContain("rowBudgetSentence(result.rows.length, budget.maxResultRows)");
   });
 
   test("enforces the byte budget with a typed error instead of truncating", async () => {
@@ -3418,6 +3417,12 @@ describe("SQLiteProvider agent read-only execution profile (#328)", () => {
         (error: unknown) => error,
       );
     expect(thrown).toBeInstanceOf(QueryError);
+    // The whole sentence, numbers in order: [{"big":"<30 a>"}] is 42 bytes as JSON (D367).
+    expect((thrown as QueryError).message).toBe("Read-only execution exceeded the byte budget: 42 bytes > 8 allowed");
+
+    // PostgreSQL's byte call, pinned against the source like its row call above.
+    const postgresSource = readFileSync(join(REPO_ROOT, "src/lib/db/providers/sql/postgres.ts"), "utf8");
+    expect(postgresSource).toContain("byteBudgetSentence(resultBytes, budget.maxResultBytes)");
   });
 
   test("rejects a statement that overruns the timeout budget", async () => {

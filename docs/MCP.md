@@ -1,18 +1,22 @@
 # MCP server
 
 LibreDB Studio serves the [Model Context Protocol](https://modelcontextprotocol.io) at `/api/mcp`.
-An AI client of your own, such as Claude Code, Codex, Cursor, VS Code or Gemini CLI, reads the schemas of the connections an operator opted in and runs bounded, read-only SQL through Studio, while the database credentials stay on the server.
+An AI client of your own, such as Claude Code, Codex, Cursor, VS Code or Gemini CLI, reads the schemas of the connections an operator opted in and runs bounded, read-only SQL, MongoDB commands and kubectl reads through Studio, while the database credentials stay on the server.
 It is off by default.
 
 ## What it is
 
 - One endpoint, `POST /api/mcp`, served by the official MCP TypeScript SDK.
   It speaks revision 2026-07-28 and, without sessions, the 2025 revisions 2025-11-25 and 2025-06-18 that most clients still use.
-- Three tools, each annotated read-only and closed-world:
+- Five tools, each annotated read-only and closed-world:
   - `list_connections` lists the connections opted in for MCP that your token's role may use, without credentials.
-    It works for every engine but etcd, Oxia, S3-compatible object storage, Kubernetes, MQTT, Firestore, OPC UA, Modbus, NETCONF, SNMP and Sparkplug B, whose connections the seed file cannot opt in.
+    It works for every engine but etcd, Oxia, S3-compatible object storage, MQTT, Firestore, OPC UA, Modbus, NETCONF, SNMP and Sparkplug B, whose connections the seed file cannot opt in.
+    Each connection's `read_tool` names the tool that runs a statement on it, `run_read_query`, `run_kubectl_read` or `run_mongo_command`, and is `null` where `inspect_schema` is the only read.
   - `inspect_schema` lists one connection's tables with their columns and, on request, their indexes.
-    It works on every engine but etcd, Oxia, S3-compatible object storage, Kubernetes, MQTT, Firestore, OPC UA, Modbus, NETCONF, SNMP and Sparkplug B: it lists every object kind the engine reads rows from, such as views beside tables, MongoDB collections, Redis keyspaces and search indexes, and `kind` names which one each entry is.
+    It works on every engine but etcd, Oxia, S3-compatible object storage, MQTT, Firestore, OPC UA, Modbus, NETCONF, SNMP and Sparkplug B: it lists every object kind the engine reads rows from, such as views beside tables, MongoDB collections, Redis keyspaces and search indexes, and `kind` names which one each entry is.
+    On Kubernetes it refuses the call by name, because no Kubernetes kind is a table: the refusal names `run_kubectl_read`, which reads its objects, and is answered as soon as the connection resolves, before anything is acquired.
+    So no object name, a Secret's included, reaches it there ([kubernetes.md](./providers/kubernetes.md#9-capabilities-ai-and-mcp)).
+    The statement arm that serves an engine declares that its engines hold no table (`holdsNoTables` in `src/lib/mcp/tools/statement-arms.ts`), and a test holds that declaration to every served engine's own relation kinds.
     On RabbitMQ it lists the streams of one virtual host, at most the 500 its Streams folder shows, and matches a named virtual host case-insensitively ([rabbitmq.md](./providers/rabbitmq.md#8-ai-agent-and-mcp)).
     A column an engine only inferred from sampled data, rather than read from a declaration, is never listed, so a table may hold fields the answer does not show; `columns_omitted` counts only the columns beyond the 50-column cap, and agent grounding and the AI panels never receive such a column either.
     On Milvus it lists the collection's declared fields, with the dynamic field as one `$meta` column and never a key inside it.
@@ -21,12 +25,32 @@ It is off by default.
     On InfluxDB (InfluxQL) it lists measurements with their tag and field keys, and on InfluxDB 3 (SQL) tables with their columns; the `_internal` database and the `system.*` tables of a 3.x server are never returned.
     On Databend it lists tables, views, materialized views and dynamic tables; on a Databend Cloud connection with a Warehouse set, a call resumes a suspended warehouse, which bills while it runs, as any statement does.
     On Apache Spark it lists the tables and views of one namespace, read with SHOW and DESCRIBE statements that start no Spark job on Studio's own session; a namespace is named in Spark's spelling, its parts joined by dots.
-  - `run_read_query` runs one read-only statement: a `SELECT` (a `WITH` is fine), `VALUES`, `TABLE`, or `EXPLAIN` without `ANALYZE`.
-    Runs on PostgreSQL, SQLite, DuckDB, SQL Server and MySQL; other engines refuse it, so use inspect_schema there.
-    It refuses every engine outside that list as soon as the connection resolves, before anything is acquired, answering "this tool does not serve <engine>; use inspect_schema there".
-    MongoDB is one of them although agent mode executes on it, because its statement is a JSON command and this tool takes SQL (issue #1614); the MCP arm it lacks is `docs/BACKLOG.md` B117.
-    Kubernetes is executed by agent mode too and is not offered to MCP at all.
-- Read-only is the database's own enforcement, not a filter over SQL text: `run_read_query` takes the connection under Studio's agent read-only execution profile and runs through the provider's read-only statement path, which PostgreSQL enforces with a read-only transaction, SQLite and DuckDB with a read-only open, SQL Server by verifying the principal cannot write, and MySQL and MariaDB by a least-privilege principal beside a read-only transaction.
+  - `run_read_query` runs one read-only SQL statement.
+    A `SELECT` (a `WITH` is fine) runs on every engine it serves; a refused statement's answer names what else that engine takes.
+    Runs on PostgreSQL, SQLite, DuckDB, SQL Server and MySQL; other engines refuse it, and list_connections' read_tool names the tool that reads each connection.
+    It serves an engine only where agent mode executes statements on it, the engine is offered to MCP, and `MCP_STATEMENT_READ` in `src/lib/db/compatibility.ts` opens statement reads on it, so an engine that joins agent mode stays closed here until a change of its own opens it.
+    It refuses every engine outside that list as soon as the connection resolves, before anything is acquired, answering "this tool does not serve <engine>; use <tool> there", where the tool is the one the connection's `read_tool` names, or `inspect_schema` where it is `null`.
+    MongoDB is one of them, because its statement is a JSON command, which `run_mongo_command` reads, and Kubernetes another, because its statement is a kubectl line, which `run_kubectl_read` reads.
+    Each engine takes these, as its row in `src/lib/db/providers/sql/read-query-forms.ts` names them:
+    - PostgreSQL: a `SELECT` (a `WITH` is fine), `VALUES`, `TABLE`, or `EXPLAIN` without `ANALYZE`.
+    - SQLite: a `SELECT` (a `WITH` is fine), `VALUES`, or `EXPLAIN`.
+    - DuckDB: a `SELECT` (a `WITH` is fine), `VALUES`, `TABLE`, or `EXPLAIN` without `ANALYZE`.
+    - SQL Server: a `SELECT` (a `WITH` is fine).
+    - MySQL: a `SELECT` (a `WITH` is fine), `VALUES`, `TABLE` (MySQL, not MariaDB), or `EXPLAIN` without `ANALYZE`.
+  - `run_mongo_command` runs one read-only MongoDB command, the JSON command envelope agent mode reads: `find`, `findOne`, `aggregate`, `count` or `distinct` on one collection, as `command`.
+    Runs on MongoDB; other engines refuse it.
+    It reads and admits the command with agent mode's own reader, so a write operation and a write stage of a pipeline (`$out`, `$merge`) are refused before anything is acquired, in the sentence an agent run reads.
+    It takes no `offset`: a result cut at `max_rows` says how to narrow the command, and a read past the 1000-row provider budget is refused with the same advice, so page inside the command with a find's `skip` or a `$skip` stage.
+    A result cut at the 32 KiB result limit names how many rows fitted and says to project fewer fields or skip past them, never to set the limit the command already has.
+    It takes no `database`: a MongoDB connection reads the database it is bound to, as an agent run does.
+  - `run_kubectl_read` runs one read-only kubectl read, the line agent mode reads: `get`, `describe`, `logs`, `top`, `events`, `api-resources`, `api-versions`, `explain`, `auth can-i`, `auth whoami` or `version`, with or without the `kubectl` word, as `statement`.
+    Runs on Kubernetes; other engines refuse it.
+    It reads and admits the line with agent mode's own reader, so exec, a write, a line longer than 4,096 characters and Studio's paging line are refused before anything is acquired, in the sentence an agent run reads; a watch (`-w`) is refused by the provider.
+    Its answer is the agent's machine projection: a Secret's name in every field defined to hold one, Secret and ConfigMap values, env and header values, a container's command and args and annotation values read `<redacted>`.
+    Free-text status, event and log messages are not masked, so a Secret's name or a value an application printed reaches the client there; the full residue machine redaction leaves unmasked is the one [kubernetes.md](./providers/kubernetes.md#9-capabilities-ai-and-mcp) states.
+    It takes no `offset`: a result cut at `max_rows` says how to narrow the read with the command's own flags, and a read past the 1000-row provider budget is refused with the same advice.
+    It takes no `database`: a statement names its namespace with `-n` or `-A`, and without one reads the connection's Default namespace.
+- Read-only is the database's own enforcement, not a filter over statement text: `run_read_query`, `run_kubectl_read` and `run_mongo_command` take the connection under Studio's agent read-only execution profile and run through the provider's read-only statement path, which PostgreSQL enforces with a read-only transaction, SQLite and DuckDB with a read-only open, SQL Server by verifying the principal cannot write, MySQL and MariaDB by a least-privilege principal beside a read-only transaction, MongoDB by proving at open that the user holds only reads of its database on a server that enforces authorization ([mongodb.md](./providers/mongodb.md)), and Kubernetes by Studio's request allowlist on the final method and path of every request together with the token's RBAC ([kubernetes.md](./providers/kubernetes.md)).
   A statement check runs first as defence in depth.
 - A result that carries database content starts with a text block telling the model to treat what follows as untrusted data.
 
@@ -117,6 +141,7 @@ On SQL Server the login must hold no fixed server role, neither `CONTROL SERVER`
 A seed entry cannot carry a separate agent credential, so the fix is the seed's own login.
 `inspect_schema` acquires its connection read-only too, under `agent-operations` where `run_read_query` takes `agent-read-only`, and on PostgreSQL and SQL Server both profiles verify the principal at open, not per statement, so the same least-privilege requirement applies there too: a superuser PostgreSQL role or a privileged SQL Server login refuses `inspect_schema` as well.
 MongoDB proves its principal only for a connection that sends statements, so `inspect_schema` opens a MongoDB connection unverified, as the editor does, and no principal check refuses it there (`tests/integration/mcp/inspect-schema.test.ts` lists the collections of the admin seed, of a server without authorization and of FerretDB).
+A Kubernetes seed's `password` is the ServiceAccount token every MCP call on it runs as, because a seed carries no separate agent token, so opt in a token bound to a read role such as `view` or `studio-reader` ([kubernetes.md](./providers/kubernetes.md#45-a-serviceaccount-token-view-and-studio-reader)).
 
 A PostgreSQL seed with an empty `database` reaches every database its role can CONNECT to (#1530, [`docs/providers/postgres.md` §4.1.1](providers/postgres.md#411-server-level-connections-an-empty-database-1530)).
 On such a connection both `inspect_schema` and `run_read_query` take a `database` argument naming the one to read, and a call without it is answered, in Studio's words, with the databases it could name (at most fifty), rather than run in whichever came first.
@@ -298,7 +323,7 @@ For the first few seconds after that service starts, `opencode mcp list` can say
 - Authentication is a static bearer token that Studio mints: there is no OAuth and no protected resource metadata document, so a client needs its `Authorization` header configured.
 - `run_read_query` reads at most 1000 rows and 1 MiB from the database, and answers at most `max_rows` rows (default 100, at most 500) and 32 KiB; `truncated`, `truncated_by`, `pagination.hasMore` and `pagination.nextOffset` say what was cut and where the next page starts.
 - A NaN, Infinity or -Infinity cell in a `run_read_query` answer is the string `"NaN"`, `"Infinity"` or `"-Infinity"`; it used to be `null`, which a client could not tell from SQL NULL. A text cell holding one of those words looks the same.
-- A query with its own `LIMIT` or `TOP`, and `VALUES`, `TABLE` or `EXPLAIN`, cannot be paged with `offset`; the answer says how to page it in SQL.
+- A query with its own `LIMIT` or `TOP`, and `VALUES`, `TABLE` or `EXPLAIN`, cannot be paged with `offset`; the answer says how to page it in that engine's SQL.
 - `inspect_schema` and `list_connections` fit each page to 32 KiB, and `has_more` and `next_offset` say where the next page starts.
 - Every `POST` spends one slot of the same per-user budget the database routes use (`RATE_LIMIT_QUERY_MAX`, 120 a minute by default), so a session and an MCP token of one person share it.
 - Studio honours a cancel only when the client closes the request.
