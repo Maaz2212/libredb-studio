@@ -544,7 +544,7 @@ export const MCP_EXPOSABLE: Readonly<Record<DatabaseType, boolean>> = Object.fre
   // Outside this version, as etcd's and Oxia's: the provider implements no queryReadOnly, and no MCP surface
   // that lists buckets but never an object key is designed yet (BACKLOG B104).
   s3: false,
-  // Offered with every answer machine-redacted (all-providers ruling 21): `run_kubectl_read` runs the agent's
+  // Offered with every answer machine-redacted: `run_kubectl_read` runs the agent's
   // `queryReadOnly`, whose output masks every Secret name, and `inspect_schema` lists relations alone, which no
   // Kubernetes kind is, so no object name, a Secret's included, reaches it.
   kubernetes: true,
@@ -568,7 +568,9 @@ export const MCP_EXPOSABLE: Readonly<Record<DatabaseType, boolean>> = Object.fre
   // the connection, because Modbus has no discovery and a name means only what that document
   // says it means, so an MCP client has nothing to form a read from on its own.
   modbus: false,
-  // not taken by default.
+  // MCP is outside this provider's first version, as for etcd, Oxia, S3 and MQTT. A statement tool offered later
+  // has to deal with configuration values: a read-only account still reads password hashes and keystore entries
+  // out of the configuration, which is why the catalog carries names only (docs/providers/netconf.md 6.3).
   netconf: false,
   snmp: false,
   // Outside this version, for the reason MQTT's entry gives rather than for the absence of a read query path:
@@ -582,7 +584,7 @@ export const MCP_EXPOSABLE: Readonly<Record<DatabaseType, boolean>> = Object.fre
 });
 
 /**
- * Which shipped engines an MCP client may run a statement on (all-providers design 6.1): a second record beside
+ * Which shipped engines an MCP client may run a statement on: a second record beside
  * `MCP_EXPOSABLE`, which also opens `list_connections` and `inspect_schema` and so cannot be turned false to keep a
  * statement tool closed. An MCP statement tool serves an engine only where agent mode executes statements on it,
  * `MCP_EXPOSABLE` offers it and this record answers true (`src/lib/mcp/tools/served-engines.ts`), so an engine that

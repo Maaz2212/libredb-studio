@@ -104,6 +104,8 @@ A refusal that still happens is shown in the dialog that asked and written into 
 Every console request of this version is a read, so the mode changes nothing else.
 The mode binds a `user` only on a managed seed whose secret only the seed holds, and only when the server has authorization enabled: Milvus with `authorizationEnabled: false`, its default, accepts any credential or none, so a connection that works proves nothing about the server, and Studio cannot tell.
 Double the mode on the server with a Milvus role that holds `CollectionReadOnly` and `DatabaseReadOnly` and nothing more.
+On 3.0.2 `DatabaseReadOnly` is exactly `ShowCollections` and `DescribeDatabase` (`DatabaseReadOnlyPrivileges` in the server's `pkg/util/constant.go`), and `CreateCollection` belongs to `DatabaseAdmin`.
+The 2.6.x and 3.0.x privilege-group tables on milvus.io list `CreateCollection` under `DatabaseReadOnly`; the server source and the 2.5.x table do not, and the server is what decides.
 
 ### 3.5 Machine access
 
@@ -553,4 +555,5 @@ The refusal reason it prints, verbatim:
 
 - The design: the vector-family design under issue #424, sections 3 to 5.
 - Milvus's REST v2 reference (`rest-summary-v3.0.x`) and the milvus-proto `go-api/v3.0.2` definitions.
+- Milvus's built-in privilege groups: `DatabaseReadOnlyPrivileges` and its neighbours in [`pkg/util/constant.go` at v3.0.2](https://github.com/milvus-io/milvus/blob/v3.0.2/pkg/util/constant.go), which the [privilege-group table](https://milvus.io/docs/privilege_group.md) misstates for `CreateCollection` (section 3.4).
 - [`docker/milvus/README.md`](../../docker/milvus/README.md) and [`tests/fixtures/milvus/README.md`](../../tests/fixtures/milvus/README.md).
