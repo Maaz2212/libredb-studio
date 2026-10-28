@@ -3,11 +3,16 @@
  * contract spec 6.4).
  *
  * It reads every source file under `src/` and `vscode-extension/src/` that git lists (tracked, and untracked but not
- * ignored), outside `src/lib/db/**` and `src/lib/agent/languages/**`, and finds each branch shape
+ * ignored), outside the provider layer, and finds each branch shape
  * `./no-engine-branches/scan.ts` names: a table keyed by a type id, an array of type ids, a comparison or `case` label
  * with one, and one in default position. Every finding is held, by file and declaration name, to exactly one of three
  * lists, and each entry names how many findings its declaration holds, so a branch added inside a listed declaration
  * fails as one added anywhere else does:
+ *
+ * The provider layer is `src/lib/db/providers/**` and the statement-language packs under `src/lib/agent/languages/**`.
+ * The rest of `src/lib/db/` is a shared core like any other and is scanned, the engine contract directories with it:
+ * their index tables, which collect one row per engine declared beside its provider, are listed as registries, as are
+ * the other tables keyed by type id, and `factory.ts` as the composition root.
  *
  * 1. `REGISTRIES`, the mappings of spec 5.6 that stay, because their job is the mapping;
  * 2. `FALSE_POSITIVES`, a word spelled like a type id that names something else, each with what it names;
@@ -29,7 +34,15 @@ import { type BranchFinding, findEngineBranches } from "./no-engine-branches/sca
 
 const ROOT = join(import.meta.dir, "..", "..", "..");
 const SOURCE_FILE = /\.(c|m)?(t|j)sx?$/;
-const PROVIDER_LAYER = ["src/lib/db/", "src/lib/agent/languages/"];
+/** The engine contract directories, scanned like the rest of the shared db core. */
+const CONTRACT_DIRECTORIES = [
+  "src/lib/db/connection-string/",
+  "src/lib/db/execution-ui/",
+  "src/lib/db/migration-ddl/",
+  "src/lib/db/sql-grammar/",
+  "src/lib/db/sql-writing/",
+];
+const PROVIDER_LAYER = ["src/lib/db/providers/", "src/lib/agent/languages/"];
 const THIS_FILE = "tests/unit/lib/no-engine-branches.test.ts";
 const CREATE_TABLE_MODAL = "src/components/CreateTableModal.tsx";
 const TYPE_IDS: ReadonlySet<string> = new Set([...EXTERNAL_DATABASE_TYPES, "libredb"]);
@@ -54,9 +67,100 @@ const DISPLAY_ORDER = "display order only";
 const INBOUND = "an inbound mapping from an outside name to a type id";
 const AGENT_LEG = "the agent-leg pattern, guarded by its own tests";
 const STORAGE_BACKEND = "the storage backend `STORAGE_PROVIDER` names, not an engine";
+const COMPATIBILITY = "a total per-engine compatibility table, compile-enforced over the type-id union";
+const FIELDS = "the UI-free connection field table, compile-enforced over the type-id union";
+const CONTRACT = "an engine contract's index, which collects the row each engine declares beside its provider";
+const NO_CONNECTION = "the engine a view with no connection open has always named, kept as the no-connection row";
 
 /** The registries of spec 5.6, which stay. */
 export const REGISTRIES: readonly Listed[] = [
+  ...[
+    "SHIPPED",
+    "EXTERNAL",
+    "READ_ONLY_ENFORCED",
+    "READS_FILE_ACCESS_POSTURE",
+    "SINGLE_WRITER_FILE",
+    "MCP_EXPOSABLE",
+    "MCP_STATEMENT_READ",
+    "CONNECTION_FORM_URI_MODE",
+    "CONNECTION_STRING_ACCEPTED",
+    "OPENS_LOCAL_FILE",
+    "OPENS_SERVER_LEVEL_WITHOUT_DATABASE",
+  ].map((declaration) => ({ path: "src/lib/db/compatibility.ts", declaration, count: 1, reason: COMPATIBILITY })),
+  ...["CONNECTION_FIELD_ROWS", "CONNECTION_FIELDS", "SEED_ONLY_FIELDS"].map((declaration) => ({
+    path: "src/lib/db/connection-fields.ts",
+    declaration,
+    count: 1,
+    reason: FIELDS,
+  })),
+  ...[
+    ["src/lib/db/connection-string/index.ts", "CONNECTION_STRING"],
+    ["src/lib/db/execution-ui/index.ts", "EXECUTION_UI"],
+    ["src/lib/db/migration-ddl/index.ts", "MIGRATION_DDL"],
+    ["src/lib/db/sql-grammar/index.ts", "SQL_GRAMMAR"],
+    ["src/lib/db/sql-writing/index.ts", "SQL_WRITING"],
+  ].map(([path, declaration]) => ({ path, declaration, count: 1, reason: CONTRACT })),
+  {
+    path: "src/lib/db/connection-string/index.ts",
+    declaration: "CONNECTION_STRING_PASTE_ORDER",
+    count: 1,
+    reason: "the order the parser offers a paste to the rows that read one, the one place that order is kept",
+  },
+  {
+    path: "src/lib/db/connection-string/index.ts",
+    declaration: "pasteRows",
+    count: 1,
+    reason: "the parameter type of the connection string index it is handed, which holds no row here",
+  },
+  {
+    path: "src/lib/db/connection-string/index.ts",
+    declaration: "ENGINE_URI_SCHEMES",
+    count: 1,
+    reason: "the scheme of each row that has one, built from the connection string index",
+  },
+  {
+    path: "src/lib/db/execution-ui/explain-request.ts",
+    declaration: "explainRequestEngine",
+    count: 1,
+    reason: NO_CONNECTION,
+  },
+  {
+    path: "src/lib/db/migration-ddl/index.ts",
+    declaration: "migrationDialectHeader",
+    count: 1,
+    reason: NO_CONNECTION,
+  },
+  {
+    path: "src/lib/db/connection-form.ts",
+    declaration: "CONNECTION_FORM",
+    count: 1,
+    reason: "each engine's UI-free connection form row, compile-enforced over the type-id union",
+  },
+  { path: "src/lib/db/connection-form.ts", declaration: "CONNECTION_PICKER_ORDER", count: 1, reason: DISPLAY_ORDER },
+  {
+    path: "src/lib/db/credential-warnings.ts",
+    declaration: "CREDENTIAL_WARNINGS",
+    count: 1,
+    reason: "the credential warning each engine's form shows, one row per engine",
+  },
+  {
+    path: "src/lib/db/destructive-commands.ts",
+    declaration: "NON_SQL_DESTRUCTIVE_VOCABULARY",
+    count: 1,
+    reason: "the confirmation gate's registry, each row declared beside its provider",
+  },
+  {
+    path: "src/lib/db/factory.ts",
+    declaration: "createDatabaseProvider",
+    count: 43,
+    reason: "the composition root, which maps each type id to its provider class",
+  },
+  {
+    path: "src/lib/db/graph-policy-profiles.ts",
+    declaration: "GRAPH_POLICY_PROFILES",
+    count: 1,
+    reason: "the graph policy profile of each graph engine, a partial registry",
+  },
   {
     path: "src/components/admin/tabs/OverviewTab.tsx",
     declaration: "DB_TYPES_PREVIEW",
@@ -226,6 +330,25 @@ describe("type-id branches outside the provider layer", () => {
     expect(scannedFiles().filter((path) => path.startsWith("vscode-extension/src/")).length).toBeGreaterThan(0);
   });
 
+  test("scan the shared db core, the MCP server and the components", () => {
+    const scanned = scannedFiles();
+    for (const shared of [
+      "src/lib/db/factory.ts",
+      "src/lib/db/destructive-commands.ts",
+      "src/lib/db/utils/",
+      ...CONTRACT_DIRECTORIES,
+    ]) {
+      expect(
+        scanned.some((path) => path.startsWith(shared)),
+        shared,
+      ).toBe(true);
+    }
+    for (const shared of ["src/lib/mcp/", "src/components/"]) {
+      expect(scanned.filter((path) => path.startsWith(shared)).length, shared).toBeGreaterThan(0);
+    }
+    expect(scanned.filter((path) => path.startsWith("src/lib/db/providers/"))).toEqual([]);
+  });
+
   test("are each held by exactly one list", () => {
     const unheld = found
       .filter(
@@ -258,6 +381,37 @@ describe("type-id branches outside the provider layer", () => {
     const keys = Object.values(LISTS).flatMap((list) => list.map(key));
     expect(keys.filter((entry, at) => keys.indexOf(entry) !== at)).toEqual([]);
     expect(DEBT.filter((entry) => !(entry.pr >= 2 && entry.pr <= 8)).map(key)).toEqual([]);
+  });
+});
+
+/** The statement text of `path`, with its comments blanked so prose about an engine is not read as a branch. */
+function codeOf(path: string): string {
+  return readFileSync(join(ROOT, path), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\n]/g, ""))
+    .replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+}
+
+/** The members of a string-literal union type alias declared in `path`. */
+function unionMembers(path: string, alias: string): string[] {
+  const source = readFileSync(join(ROOT, path), "utf8");
+  const start = source.indexOf(`export type ${alias} =`);
+  const end = source.indexOf(";", start);
+  return [...source.slice(start, end).matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+}
+
+// An engine fact the scan cannot see, because its value is not a type id, held to the module that owns it.
+describe("engine facts spelled by a value other than a type id", () => {
+  test("the Studio shell names no explain format: a strategy declares its live estimate", () => {
+    const formats = unionMembers("src/lib/db/types.ts", "ExplainFormat");
+    expect(formats.length).toBeGreaterThan(0);
+    const code = codeOf("src/components/Studio.tsx");
+    expect(
+      formats.filter((format) => ['"', "'", "`"].some((quote) => code.includes(`${quote}${format}${quote}`))),
+    ).toEqual([]);
+  });
+
+  test("the test data generator names no engine's request operation: the sql-writing row writes it", () => {
+    expect(codeOf("src/components/TestDataGenerator.tsx")).not.toMatch(/["'`]insertMany["'`]/);
   });
 });
 
