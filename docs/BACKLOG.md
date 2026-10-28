@@ -4699,16 +4699,16 @@ same answer from one place.
 
 ### U37. Monaco's bundled `redis` language shadows the Redis tokenizer this repository registers
 
-`registerRedisLanguage` in `src/lib/editor/redis-language.ts` returns before it registers anything when `monaco.languages.getLanguages()` already lists the `redis` id, which is how it stays idempotent across editor mounts.
+`registerRedisLanguage` in `src/lib/db/providers/keyvalue/redis-editor-syntax.ts` returns before it registers anything when `monaco.languages.getLanguages()` already lists the `redis` id, which is how it stays idempotent across editor mounts.
 The installed Monaco bundle registers that id itself at load time: `node_modules/monaco-editor/min/vs/basic-languages/monaco.contribution.js` registers `id:"redis"`, and `tests/isolated/monaco-language-ids.test.ts` asserts `redis` among the bundle's basic language ids.
 So in the browser the early return always fires, and a Redis tab is tokenized by Monaco's bundled Redis grammar, never by `REDIS_KEYWORDS` and the rules that file and its tests describe.
 Read from the bundle, not yet seen in a browser.
 
-Found 2026-09-23 while writing `registerPromqlLanguage` on the `redis-language.ts` template for #1085 (section 3.2); the template works for PromQL only because the bundle ships no `promql` id.
+Found 2026-09-23 while writing `registerPromqlLanguage` on the `redis-editor-syntax.ts` template for #1085 (section 3.2); the template works for PromQL only because the bundle ships no `promql` id.
 Not fixed in #1085: registering Redis differently changes how every Redis tab is highlighted, which is not that PR's to change.
 Amended 2026-09-30: the etcd language registers an id the bundle does not ship, `etcd`, which `tests/isolated/monaco-language-ids.test.ts` pins, the shape this entry's fix takes.
 
-`grep -rn 'getLanguages().some' src/lib/editor/redis-language.ts` returns exactly one hit, that early return, and the bundle's own registration of the id is what `tests/isolated/monaco-language-ids.test.ts` asserts.
+`grep -rn 'getLanguages().some' src/lib/db/providers/keyvalue/redis-editor-syntax.ts` returns exactly one hit, that early return, and the bundle's own registration of the id is what `tests/isolated/monaco-language-ids.test.ts` asserts.
 
 **Done when:** a Redis tab in the browser is tokenized by this repository's rules, through an id the bundle does not ship or by replacing the bundled tokenizer on purpose, with a test that fails while the bundled `redis` registration wins.
 
@@ -6256,7 +6256,8 @@ Amended 2026-10-19: its mongodb half closed when the connection dialog's two `==
 
 ### DOC20. docs/ADDING_A_PROVIDER.md carries stale counts and an incomplete label table
 
-The guide says seven translated READMEs are gated by `readme:check` where `scripts/readme-check.mjs` gates eight (`README_ko.md` joined in 3d9689aaf); its `getCapabilities()` bullet names two query languages (`sql` | `json`) where its own `ProviderCapabilities` table lists all five; says `QueryEditor` registers six language modules where it registers seven plus `registerDialectConsoles`; has no row for `sessionsEmptyState`, `tableStatsCaption` or `vacuumActionOperation` in its `ProviderLabels` table; and gives two driver-free counts, thirteen in its first decision and fifteen in its checklist.
+The guide says seven translated READMEs are gated by `readme:check` where `scripts/readme-check.mjs` gates eight (`README_ko.md` joined in 3d9689aaf); its `getCapabilities()` bullet names two query languages (`sql` | `json`) where its own `ProviderCapabilities` table lists all five; has no row for `sessionsEmptyState`, `tableStatsCaption` or `vacuumActionOperation` in its `ProviderLabels` table; and gives two driver-free counts, thirteen in its first decision and fifteen in its checklist.
+Its count of the language modules `QueryEditor` registers is gone: the guide now names the editor language registry, `EDITOR_LANGUAGES`, in place of a count.
 
 Found 2026-10-09 while designing the S3 provider; pre-existing.
 
