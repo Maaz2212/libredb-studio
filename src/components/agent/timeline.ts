@@ -3,6 +3,7 @@ import { AGENT_MAX_REPAIR_ATTEMPTS, AGENT_WORKFLOW_BUDGETS } from "@/lib/agent/e
 import type { AgentGoalShortfall } from "@/lib/agent/goal-verifier";
 import { type AgentInventoryNoun, TABLE_INVENTORY_NOUN } from "@/lib/agent/inventory-noun";
 import type { AgentPlanAccess, AgentPlanSummary } from "@/lib/agent/plan-summary";
+import { evidenceEventSpec, isPackEvidenceEvent } from "@/lib/agent/languages/client";
 import { readPlanStatement } from "@/lib/agent/plan-draft";
 import type { AgentLedgerEntry } from "@/lib/agent/run-store";
 import {
@@ -28,7 +29,7 @@ import {
 /**
  * One run's ledger, turned into the timeline a user reads (#329 T10a).
  *
- * Types only from the runtime modules: this file runs in the browser, and the
+ * Mostly types from the runtime modules: this file runs in the browser, and the
  * modules that define these contracts reach the durable backend and the database
  * drivers. `import type` erases, so the rail carries the vocabulary without
  * carrying the runtime (the boundary T12 pins mechanically).
@@ -46,18 +47,27 @@ import {
  *    A database error is the only variant with a message, and that message is
  *    `quoted`, not narrated.
  *
- * THREE value imports from the runtime modules, and all three are deliberate (#329
- * T10b, the per-workflow ceilings, and #414): `execution-policy.ts`, because the
- * budget meter's ceilings have to be the numbers the server actually enforces rather
- * than a second copy that can drift from them; `DEFAULT_AGENT_WORKFLOW_TYPE` from
- * `types.ts`, because a header written before the workflow field must fold to the same
- * workflow the server reads it as; and `TABLE_INVENTORY_NOUN` from
- * `inventory-noun.ts`, because a ledger written before the noun existed must fold to
- * the word it was written under, and spelling "table"/"tables" a second time here is
- * exactly the drift that default exists to prevent. All three modules are frozen
- * constants and type declarations whose own imports are types only, so none of them
- * puts anything in the browser bundle — the property `plan-draft-boundary.test.ts`
- * measures, and the one a directly-inspected import list once got wrong.
+ * The value imports from the runtime modules are each deliberate (#329 T10b, the
+ * per-workflow ceilings, #396 and #414): `execution-policy.ts`, because the budget
+ * meter's ceilings have to be the numbers the server actually enforces rather than a
+ * second copy that can drift from them; `DEFAULT_AGENT_WORKFLOW_TYPE` from `types.ts`,
+ * because a header written before the workflow field must fold to the same workflow
+ * the server reads it as; `TABLE_INVENTORY_NOUN` from `inventory-noun.ts`, because a
+ * ledger written before the noun existed must fold to the word it was written under,
+ * and spelling "table"/"tables" a second time here is exactly the drift that default
+ * exists to prevent; `readPlanStatement` from `plan-draft.ts`, because the rail must
+ * read a plan run's deliverable with the reader the server records it with; and
+ * `languages/client.ts`, the packs' client tier, for the evidence events a language
+ * pack declares, so the rail names none of their kinds.
+ *
+ * Some of these modules have value imports of their own (a query limit, the SQL
+ * splitter, the packs' client facets and their leaves), so "types only" is not what
+ * keeps server code out of the browser bundle. What does is measured, not described:
+ * the walk in `client-import-boundary.test.ts` follows every value import from
+ * `AgentRail.tsx`, this file included, and fails on any server module it reaches;
+ * `plan-draft-boundary.test.ts` pins `plan-draft.ts` on its own; and the client tier
+ * of `language-boundary.test.ts` keeps every pack's client facet from reaching a
+ * server module.
  */
 
 export type AgentTimelineTone = "neutral" | "progress" | "refused" | "done";
@@ -1068,6 +1078,8 @@ function describeEvent(
   stopRequested: boolean,
   noun: AgentInventoryNoun,
 ): Omit<AgentTimelineItem, "id" | "atMs"> {
+  // A kind a language pack declares is shown in the words its pack declares; every other kind is the core's own.
+  if (isPackEvidenceEvent(event)) return evidenceEventSpec(event).timeline(event);
   switch (event.kind) {
     case "run-started":
       return { tone: "neutral", chrome: true, headline: `Run started in ${event.mode} mode` };
@@ -1197,29 +1209,6 @@ function describeEvent(
             : `${event.profile.rowCount} row(s) at ${event.profile.depth} depth. ${event.profile.findings
                 .map((finding) => `${finding.column}: ${finding.code} — ${finding.detail}`)
                 .join(" ")}`,
-      };
-    // The namespace is spoken in the headline the way a profiled table's name is: it is the subject of the entry.
-    case "usage-read":
-      return {
-        tone: "progress",
-        headline: `Read container usage in ${event.namespace}`,
-        detail: `${event.artifact.summary.rowCount} container(s), against their requests and limits.`,
-        artifactId: event.artifact.correlationId,
-      };
-    case "workloads-profiled":
-      return {
-        tone: "progress",
-        headline: `Profiled the workloads of ${event.namespace}`,
-        detail: `${event.artifact.summary.rowCount} workload(s).`,
-        artifactId: event.artifact.correlationId,
-      };
-    case "usage-unavailable":
-      // `neutral`, for the reason a schema that was not captured is: the run continues without the reading, so
-      // `progress` would claim it got somewhere and `refused` would claim the server turned a call back.
-      return {
-        tone: "neutral",
-        headline: "No usage metrics",
-        detail: "This cluster serves no metrics.k8s.io, so usage could not be read: install metrics-server.",
       };
     case "answer-composed":
       return {
