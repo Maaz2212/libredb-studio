@@ -22,7 +22,13 @@ import { createTargetScope } from "@/lib/db/operations/policy";
 import { KubernetesProvider } from "@/lib/db/providers/platform/kubernetes";
 import { AGENT_PAGING_SENTENCE } from "@/lib/db/providers/platform/kubernetes/console/paging";
 import { CLUSTER_USAGE_FIELDS, WORKLOAD_PROFILE_FIELDS } from "@/lib/db/providers/platform/kubernetes/agent-readings";
-import type { ClusterUsageReading, DatabaseProvider, WorkloadProfileReading } from "@/lib/db/types";
+import { RunReadAllowance } from "@/lib/db/read-allowance";
+import type {
+  ClusterUsageReading,
+  DatabaseProvider,
+  ReadOnlyStatementBudget,
+  WorkloadProfileReading,
+} from "@/lib/db/types";
 import type { AgentRunEvent } from "@/lib/agent/types";
 import type { QueryResult } from "@/lib/types";
 import { kubernetesConnection } from "../../../helpers/kubernetes-connection";
@@ -313,6 +319,15 @@ describe("inspect_usage", () => {
     expect(outcome.modelText).toContain("web-1");
   });
 
+  test("the reading is handed the run's read allowance in its budget, as every read of the run is", async () => {
+    const h = usageHarness(async () => ROWS);
+    const readAllowance = new RunReadAllowance(10);
+    await inspectUsageTool({ ...h.context, readAllowance }, { namespace: "shop" });
+
+    const [, budget] = h.readClusterUsage.mock.calls[0] as unknown as [unknown, ReadOnlyStatementBudget];
+    expect(budget.readAllowance).toBe(readAllowance);
+  });
+
   test("metrics unavailable is a reading-refused METRICS_UNAVAILABLE naming metrics-server", async () => {
     const h = usageHarness(async () => ({ kind: "metrics-unavailable" }));
     const outcome = await inspectUsageTool(h.context, { namespace: "shop" });
@@ -445,6 +460,15 @@ describe("profile_workloads", () => {
     expect(h.readWorkloadProfile).toHaveBeenCalledWith({ namespace: "shop" }, expect.any(Object));
     expect(outcome.modelText).toContain("BEGIN UNTRUSTED");
     expect(outcome.modelText).toContain("OOMKilled");
+  });
+
+  test("the profile is handed the run's read allowance in its budget, as every read of the run is", async () => {
+    const h = profileHarness(async () => ROWS);
+    const readAllowance = new RunReadAllowance(10);
+    await profileWorkloadsTool({ ...h.context, readAllowance }, { namespace: "shop" });
+
+    const [, budget] = h.readWorkloadProfile.mock.calls[0] as unknown as [unknown, ReadOnlyStatementBudget];
+    expect(budget.readAllowance).toBe(readAllowance);
   });
 
   test("an empty namespace is a completed profile of no rows", async () => {
