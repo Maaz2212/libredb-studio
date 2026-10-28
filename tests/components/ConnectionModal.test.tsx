@@ -4,6 +4,7 @@ import "../helpers/mock-navigation";
 import { pemArmour } from "../helpers/pem-armour";
 
 import { mock } from "bun:test";
+import { withFieldAccess } from "../helpers/mock-connection-form-fields";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import React from "react";
@@ -155,7 +156,7 @@ const mockSetRole = mock(() => {});
 let mockFormOverrides: Record<string, unknown> = {};
 
 function getDefaultForm() {
-  return {
+  return withFieldAccess({
     type: "postgres" as const,
     setType: mockSetType,
     name: "",
@@ -287,7 +288,7 @@ function getDefaultForm() {
       { value: "redis", label: "Redis", icon: () => React.createElement("span", null, "RD"), color: "text-hue-red" },
     ],
     ...mockFormOverrides,
-  };
+  });
 }
 
 mock.module("@/hooks/use-connection-form", () => ({
@@ -298,6 +299,7 @@ import { PASTE_FORMATS_TEXT } from "@/lib/connection-paste-formats";
 
 // The account module is pure and not mocked: the Snowflake entry's derived-host hint is the real one.
 import { snowflakeHostHint } from "@/lib/db/providers/sql/snowflake/account-host";
+import { CONNECTION_FIELD_DESCRIPTORS } from "@/lib/db/connection-fields";
 
 // ── Mock @/lib/db-ui-config ─────────────────────────────────────────────────
 // Mirrors the real table for the engines that diverge from the networked default. A mock
@@ -1957,22 +1959,20 @@ describe("ConnectionModal", () => {
        * NETCONF's `hostKeyFingerprint` was exactly that, and the provider refuses every connection
        * without it, so the engine could not be reached from the dialog at all.
        *
-       * Read from the component's source rather than from a render, because a render answers for
-       * ONE type with the mocked field list, and the claim here is about every declared field.
+       * Read from the descriptor registry and the component's source rather than from a render, because a render
+       * answers for ONE type with the mocked field list, and the claim here is about every declared field. A field the
+       * dialog's one renderer draws is drawn by its descriptor (src/lib/db/connection-fields.ts, a module this file
+       * does not mock), so the census asks the registry; a field the dialog lays out itself (the address, the
+       * connection string, the cleartext consent) is held to its box's id in the source.
        */
       const modal = readFileSync(join(import.meta.dir, "../../src/components/ConnectionModal.tsx"), "utf8");
-      /*
-       * THREE PATTERNS, because the component draws a field in three shapes and a one-pattern
-       * criterion reports four fields that ARE drawn. Measured: `id="field"` alone flags
-       * `serviceName`, `instanceName`, `saslMechanism` and `authMethod`, which are drawn through a
-       * select gate (`takesConnectionField`) or a label call with `value={field}` under it. A
-       * finding whose criterion is wrong is a finding nobody can act on, so the criterion is the
-       * union of the three the component actually uses.
-       */
-      const drawn = (field: string): boolean =>
-        modal.includes(`id="${field}"`) ||
-        modal.includes(`takesConnectionField(type, "${field}")`) ||
-        modal.includes(`connectionFieldLabel(uiConfig, "${field}"`);
+      const drawn = (field: string): boolean => {
+        const descriptor = (CONNECTION_FIELD_DESCRIPTORS as Record<string, { readonly slot: string } | undefined>)[
+          field
+        ];
+        if (descriptor === undefined) return false;
+        return descriptor.slot === "body" || modal.includes(`id="${field}"`);
+      };
       expect(EVERY_FIELD.filter((field) => !drawn(field))).toEqual([]);
     });
 
@@ -2921,6 +2921,30 @@ describe("ConnectionModal: a field is drawn where its declared placement says", 
 
     expect(container.querySelector(selector)).not.toBeNull();
     expect(queryByRole("button", { name: /Advanced/ })).toBeNull();
+  });
+
+  /** The SET mark on the Advanced button: there while a field the engine places behind it holds a value. */
+  const setMark = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll("button span")).filter((span) => span.textContent === "SET");
+
+  test.each([
+    ["oracle", "serviceName", "XEPDB1"],
+    ["mssql", "instanceName", "SQLEXPRESS"],
+  ] as const)("%s's Advanced button is marked SET while %s holds a value, and only then", (type, field, value) => {
+    mockFormOverrides = { type, [field]: value };
+    const { container, getByRole, rerender } = render(React.createElement(ConnectionModal, createDefaultProps()));
+    expect(setMark(container)).toHaveLength(1);
+    expect(getByRole("button", { name: /Advanced/ }).contains(setMark(container)[0] ?? null)).toBe(true);
+
+    mockFormOverrides = { type, [field]: "" };
+    rerender(React.createElement(ConnectionModal, createDefaultProps()));
+    expect(setMark(container)).toHaveLength(0);
+  });
+
+  test("a value in a field drawn in the open does not mark the Advanced button", () => {
+    mockFormOverrides = { type: "oracle", serviceName: "", database: "ORCL", user: "scott" };
+    const { container } = render(React.createElement(ConnectionModal, createDefaultProps()));
+    expect(setMark(container)).toHaveLength(0);
   });
 
   test.each(FIELDS)(

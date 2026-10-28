@@ -143,9 +143,19 @@ const mockFieldShown = (config: { label: string }, field: string, connection: Re
   return String(connection[condition.field] ?? MOCK_FIRST_OPTIONS[type]?.[condition.field]) === condition.equals;
 };
 
+// Where the four engines with a placeable field draw it, as in the real table: the dialog's layout reads it, and the
+// hook opens the Advanced accordion for a loaded or imported value of a field placed there.
+const MOCK_PLACEMENT: Record<string, Record<string, "open" | "advanced">> = {
+  oracle: { serviceName: "advanced" },
+  mssql: { instanceName: "advanced" },
+  cassandra: { localDataCenter: "open" },
+  mongodb: { authSource: "open" },
+};
+
 mock.module("@/lib/db-ui-config", () => ({
   getDBConfig: (type: string) => ({
     ...(MOCK_SHOWN_WHEN[type] ? { fieldShownWhen: MOCK_SHOWN_WHEN[type] } : {}),
+    ...(MOCK_PLACEMENT[type] ? { fieldPlacement: MOCK_PLACEMENT[type] } : {}),
     label: type.charAt(0).toUpperCase() + type.slice(1),
     icon: "Database",
     color: "#000",
@@ -179,7 +189,8 @@ import {
   databendNotAppliedNotice,
 } from "@/lib/connection-string-parser";
 import { READ_ONLY_ENFORCED, SHIPPED_DATABASE_TYPES } from "@/lib/db/compatibility";
-import { CONNECTION_PICKER_ORDER } from "@/lib/db/connection-form";
+import { CONNECTION_FORM, CONNECTION_PICKER_ORDER } from "@/lib/db/connection-form";
+import { BODY_CONNECTION_FIELDS, initialFieldValues } from "@/lib/db/connection-fields";
 
 // =============================================================================
 // useConnectionForm Tests
@@ -4750,5 +4761,82 @@ describe("a Snowflake paste, applied field by field", () => {
     expect(result.current.user).toBe("");
     expect(result.current.password).toBe("");
     expect(result.current.authMethod).toBe("keypair");
+  });
+});
+
+describe("the form's values and setters by field, for the dialog's one field renderer", () => {
+  const props = {
+    isOpen: true,
+    onClose: mock(() => {}),
+    onConnect: mock<(connection: DatabaseConnection) => void>(() => {}),
+    editConnection: null as DatabaseConnection | null,
+  };
+
+  test("fieldValues holds each typed field's own state, and setFieldValue writes that state", () => {
+    const { result } = renderHook(() => useConnectionForm(props));
+    const fields = Object.keys(result.current.fieldValues) as (keyof typeof result.current.fieldValues)[];
+    expect(([...fields] as string[]).sort()).toEqual(([...BODY_CONNECTION_FIELDS] as string[]).sort());
+    for (const field of fields) {
+      // The select and the Sign-in setter store a choice; any text stands in for one here.
+      act(() => result.current.setFieldValue(field, `typed-${field}`));
+    }
+    for (const field of fields) {
+      expect({ field, value: result.current.fieldValues[field] }).toEqual({ field, value: `typed-${field}` });
+      expect({ field, value: (result.current as Record<string, unknown>)[field] }).toEqual({
+        field,
+        value: `typed-${field}`,
+      });
+    }
+  });
+
+  test("an edit loads every drawn field the connection carries, and the start of every one it does not", () => {
+    const carried = Object.fromEntries(BODY_CONNECTION_FIELDS.map((field) => [field, `stored-${field}`]));
+    const { result, rerender } = renderHook((p) => useConnectionForm(p), {
+      initialProps: { ...props, editConnection: { id: "e1", name: "e", type: "postgres", ...carried } as never },
+    });
+    expect(result.current.fieldValues).toEqual(carried as never);
+    rerender({ ...props, editConnection: { id: "e2", name: "f", type: "postgres" } as never });
+    expect(result.current.fieldValues).toEqual(initialFieldValues());
+  });
+
+  test("closing a new connection's dialog puts every drawn field back to its start", () => {
+    const { result, rerender } = renderHook((p) => useConnectionForm(p), { initialProps: props });
+    for (const field of BODY_CONNECTION_FIELDS) act(() => result.current.setFieldValue(field, `typed-${field}`));
+    rerender({ ...props, isOpen: false });
+    expect(result.current.fieldValues).toEqual(initialFieldValues());
+  });
+
+  test("a save writes each drawn field the engine takes by its descriptor's rule, and no other", async () => {
+    const onConnect = mock<(connection: DatabaseConnection) => void>(() => {});
+    const onTestConnection = async () => ({ success: true });
+    const { result } = renderHook(() => useConnectionForm({ ...props, onConnect, onTestConnection }));
+    act(() => result.current.setType("rabbitmq"));
+    act(() => result.current.setFieldValue("amqpPort", " 5672 "));
+    act(() => result.current.setFieldValue("apiPath", "   "));
+    act(() => result.current.setFieldValue("registerMap", "not taken by rabbitmq"));
+    await act(async () => {
+      await result.current.handleConnect();
+    });
+    const saved = onConnect.mock.calls[0]?.[0] as DatabaseConnection;
+    expect(saved.amqpPort).toBe(" 5672 ");
+    expect(saved).not.toHaveProperty("apiPath");
+    expect(saved).not.toHaveProperty("registerMap");
+    expect(saved.user).toBe("");
+  });
+
+  test("the Sign-in setter by field clears the credential the other method draws, as the select's own does", () => {
+    const { result } = renderHook(() => useConnectionForm(props));
+    act(() => result.current.setType("snowflake"));
+    act(() => result.current.setPrivateKey("not-a-real-key"));
+    act(() => result.current.setFieldValue("authMethod", "pat"));
+    expect(result.current.authMethod).toBe("pat");
+    expect(result.current.privateKey).toBe("");
+  });
+});
+
+describe("the form's first engine", () => {
+  test("is the picker's first engine, with that engine's port", () => {
+    expect(CONNECTION_FORM_DEFAULTS.type).toBe(CONNECTION_PICKER_ORDER[0] as DatabaseType);
+    expect(CONNECTION_FORM_DEFAULTS.port).toBe(CONNECTION_FORM[CONNECTION_FORM_DEFAULTS.type].defaultPort);
   });
 });
