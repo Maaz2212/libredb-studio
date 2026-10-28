@@ -387,9 +387,9 @@ happened rather than going quiet.
 address another server keeps its id, so a follow-up was handed the earlier steps' claims about the old
 database while reading the new one — nothing refused, nothing wrong to look at. Each run therefore
 records `connectionIdentity`, the same fingerprint the held context snapshot is filed under: engine,
-host, port, database, service, instance, role and the SSH tunnel the database is reached through, and
+host, port, database, service, instance, role, BigQuery location and the SSH tunnel the database is reached through, and
 deliberately not the password. A follow-up whose database does not match its predecessor's declines as
-`"unavailable"` rather than carrying it. Rotating a credential or renaming a connection is the same
+`"repointed"` rather than carrying it. Rotating a credential or renaming a connection is the same
 database and keeps the conversation, and a predecessor that recorded no identity at all is carried
 rather than refused — no conversation in flight across a deploy is ended by a silence. A user's
 finished conversations are listed by the run-history surface under the rail's header, which reads the
