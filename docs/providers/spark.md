@@ -143,7 +143,7 @@ What a user sees for each outcome:
 | A token the server does not check | caution, Test connection only | the second caution of [section 2.3](#23-a-server-without-a-token) |
 
 The version in a sentence is the server's text, withheld whole when it holds the token and otherwise cut to 64 characters.
-The two client-certificate rows are read under Node; under Bun the same failures read as nothing listening ([section 10](#10-security)).
+The two client-certificate rows are read under Node and under Bun from 1.4.4; under a Bun before 1.4.4 the same failures read as nothing listening ([section 10](#10-security)).
 The row of a port that is not gRPC needs that port's answer: a TLS server that closes on plaintext bytes, and under Node on Windows a port that answers HTTP/1.1, read as nothing listening.
 
 ### 2.5 Paste URL
@@ -639,7 +639,7 @@ The private-host egress guard does not cover a Spark connection, because grpc-js
 
 Known limits:
 
-- under Bun, a client-certificate failure reads as no Spark Connect server answering, because the TLS proxy's alert reaches the status text under Node only.
+- under a Bun before 1.4.4, a client-certificate failure reads as no Spark Connect server answering, because the TLS proxy's alert does not reach the status text there; Node and Bun 1.4.4 report it.
 - a result of more than about 16,000 tiny batches is cut by the 16 MiB budget, with its bytes warning, because each kept batch counts 1,024 bytes beside its values.
 - a legacy negative-scale decimal whose scale is below -38 is refused as unreadable.
 
