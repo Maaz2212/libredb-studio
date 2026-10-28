@@ -10,6 +10,7 @@ import {
   writeSequence,
 } from "@/lib/db/providers/network/snmp/ber";
 import { SnmpProvider } from "@/lib/db/providers/network/snmp";
+import { MIB_TABLES } from "@/lib/db/providers/network/snmp/mib-objects";
 import { StatementError } from "@/lib/db/providers/network/snmp/statement";
 import type { DatabaseConnection } from "@/lib/types";
 
@@ -53,8 +54,22 @@ interface Seen {
   readonly thirdInteger: number;
 }
 
+/**
+ * How a listener departs from a plain answer. `errorStatus` is read with the count of requests
+ * seen so far, so a test can let the connect probe through and fail only the read after it;
+ * `omit` names OIDs the answer leaves out of its varbind list altogether.
+ */
+interface AgentQuirks {
+  readonly errorStatus?: (requestNumber: number) => number;
+  readonly omit?: ReadonlySet<string>;
+}
+
 /** Answers a Get with one value per asked OID, and records what it was asked. */
-async function listeningAgent(seen: Seen[], values: Map<string, { tag: number; bytes: Uint8Array }>): Promise<number> {
+async function listeningAgent(
+  seen: Seen[],
+  values: Map<string, { tag: number; bytes: Uint8Array }>,
+  quirks: AgentQuirks = {},
+): Promise<number> {
   agent = createSocket("udp4");
   agent.on("message", (datagram, from) => {
     const bytes = Uint8Array.from(datagram);
@@ -69,15 +84,28 @@ async function listeningAgent(seen: Seen[], values: Map<string, { tag: number; b
       oids,
       requestId: [...bytes.slice(pdu[0].start, pdu[0].end)].reduce((n, b) => n * 256 + b, 0),
     });
-    const varbinds = oids.map((oid) => {
-      const value = values.get(oid) ?? { tag: 0x80, bytes: new Uint8Array(0) };
-      return writeSequence([writeOid(oid.split(".").map(Number)), writeField(value.tag, value.bytes)]);
-    });
+    const status = quirks.errorStatus?.(seen.length) ?? 0;
+    // A non-zero error-status comes back the way RFC 3416 has an agent send it: the request's own
+    // varbinds with NULL values, and the error index pointing at the first of them.
+    const varbinds = oids
+      .filter((oid) => !quirks.omit?.has(oid))
+      .map((oid) => {
+        const value =
+          status === 0
+            ? (values.get(oid) ?? { tag: 0x80, bytes: new Uint8Array(0) })
+            : { tag: 0x05, bytes: new Uint8Array(0) };
+        return writeSequence([writeOid(oid.split(".").map(Number)), writeField(value.tag, value.bytes)]);
+      });
     const answer = writeSequence([
       writeInteger(1),
       writeOctetString(new TextEncoder().encode("public")),
       writeSequence(
-        [writeInteger(seen[seen.length - 1].requestId), writeInteger(0), writeInteger(0), writeSequence(varbinds)],
+        [
+          writeInteger(seen[seen.length - 1].requestId),
+          writeInteger(status),
+          writeInteger(status === 0 ? 0 : 1),
+          writeSequence(varbinds),
+        ],
         0xa2,
       ),
     ]);
@@ -271,8 +299,11 @@ describe("a statement reaches a real agent and its answer reaches the caller", (
     const overview = await opened.getOverview();
     expect(overview.version).toBe("Linux agent 6.1");
     expect(overview.uptime).not.toBe("");
-    // An agent is not a database: these are zero because it HAS none, not as a placeholder.
-    expect(overview.tableCount).toBe(0);
+    // The tables are the ones the object tree lists, from the bundled modules, each with its one
+    // INDEX clause; the overview and the tree must not disagree about the same connection.
+    expect(overview.tableCount).toBe(MIB_TABLES.length);
+    expect(overview.indexCount).toBe(MIB_TABLES.length);
+    // An agent is not a database server: it takes no connections to count.
     expect(overview.maxConnections).toBe(0);
   });
 
@@ -451,3 +482,87 @@ async function rawAgent(answer: () => Uint8Array): Promise<number> {
   await new Promise<void>((resolve) => agent?.bind(0, "127.0.0.1", () => resolve()));
   return (agent.address() as { port: number }).port;
 }
+
+/**
+ * Health is a real read of the agent: one Get of the two objects every agent answers about itself.
+ *
+ * Only what an agent reports is filled in. Every figure of the shared shape an agent has no notion
+ * of says so in a sentence, and the count of connections is left out rather than sent as a zero,
+ * which the shared shape's own docblock asks of a provider that cannot measure it.
+ */
+describe("health is read from the agent, and claims nothing the agent did not say", () => {
+  test("one Get of the description and the uptime, answered with both and the round trip", async () => {
+    const seen: Seen[] = [];
+    const port = await listeningAgent(
+      seen,
+      new Map([
+        [SYS_DESCR.join("."), { tag: 0x04, bytes: new TextEncoder().encode("Linux agent 6.1") }],
+        [SYS_UPTIME.join("."), { tag: 0x43, bytes: Uint8Array.of(0, 0x98, 0x96, 0x80) }],
+      ]),
+    );
+    opened = new SnmpProvider(connectionTo(port));
+    await opened.connect();
+    const health = await opened.getHealth();
+    // The probe at connect, then the health read and nothing else.
+    expect(seen.map((request) => request.oids)).toEqual([
+      [SYS_UPTIME.join(".")],
+      [SYS_DESCR.join("."), SYS_UPTIME.join(".")],
+    ]);
+    expect(health.description).toBe("Linux agent 6.1");
+    expect(health.uptime).toBe("10000000");
+    expect(health.roundTripMs).toBeGreaterThanOrEqual(0);
+    expect(health).not.toHaveProperty("activeConnections");
+    expect(health.databaseSize).toMatch(/An SNMP agent reports no database size/);
+    expect(health.cacheHitRatio).toMatch(/An SNMP agent reports no cache/);
+    expect(health.slowQueries).toEqual([]);
+    expect(health.activeSessions).toEqual([]);
+  });
+
+  test("an object the agent does not serve is said to be missing, not rendered as a value", async () => {
+    const port = await listeningAgent([], new Map([[SYS_UPTIME.join("."), { tag: 0x43, bytes: Uint8Array.of(1) }]]));
+    opened = new SnmpProvider(connectionTo(port));
+    await opened.connect();
+    const health = await opened.getHealth();
+    expect(health.uptime).toBe("1");
+    expect(health.description).toBe("unavailable: the agent answered noSuchObject for sysDescr.0");
+  });
+
+  test("an answer that leaves an object out is said to have answered nothing for it", async () => {
+    const port = await listeningAgent([], new Map([[SYS_UPTIME.join("."), { tag: 0x43, bytes: Uint8Array.of(1) }]]), {
+      omit: new Set([SYS_DESCR.join(".")]),
+    });
+    opened = new SnmpProvider(connectionTo(port));
+    await opened.connect();
+    const health = await opened.getHealth();
+    expect(health.uptime).toBe("1");
+    expect(health.description).toBe("unavailable: the agent answered nothing for sysDescr.0");
+  });
+
+  /**
+   * An agent that answers with a non-zero error-status sends the request's varbinds back with NULL
+   * values. Read as values they render as two empty strings, which is a healthy-looking nothing:
+   * the status is the answer, and it fails the read.
+   */
+  test("an answer carrying an error-status fails the health read rather than rendering its NULLs", async () => {
+    const port = await listeningAgent(
+      [],
+      new Map([[SYS_UPTIME.join("."), { tag: 0x43, bytes: Uint8Array.of(1) }]]),
+      // The connect probe is the first request and is answered normally; the health read gets genErr.
+      { errorStatus: (requestNumber) => (requestNumber === 2 ? 5 : 0) },
+    );
+    opened = new SnmpProvider(connectionTo(port));
+    await opened.connect();
+    await expect(opened.getHealth()).rejects.toThrow(
+      "The agent refused the health read: the agent answered error-status 5",
+    );
+  });
+
+  test("an agent that stops answering fails the health read rather than reporting a healthy nothing", async () => {
+    const port = await listeningAgent([], new Map([[SYS_UPTIME.join("."), { tag: 0x43, bytes: Uint8Array.of(1) }]]));
+    opened = new SnmpProvider({ ...connectionTo(port), queryTimeout: 300 });
+    await opened.connect();
+    agent?.close();
+    agent = undefined;
+    await expect(opened.getHealth()).rejects.toThrow(/did not answer the health read/);
+  });
+});
