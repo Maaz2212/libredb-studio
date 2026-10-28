@@ -118,6 +118,19 @@ export type AuditReason =
    */
   | "oidc_role_overflow"
   /**
+   * With the Kubernetes access review on (docs/SEED_CONNECTIONS.md), the provider authenticated the account, but its ID
+   * token's groups claim is not a list of group names, lists more than 512 groups, one longer than 1024 bytes or more
+   * than 64 KiB of names in all, or names a group under Kubernetes' reserved `system:` prefix, so no review could assert
+   * it and no session was created.
+   */
+  | "oidc_groups_refused"
+  /**
+   * With the Kubernetes access review on, a session's groups record went missing again right after the silent sign-in
+   * that rebuilt it, so instead of another round trip to the provider the sign-in page is shown: more than one Studio
+   * replica, or a groups store that evicts records faster than people sign in.
+   */
+  | "oidc_groups_lost"
+  /**
    * Under governance (docs/GOVERNANCE.md#sign-in), the provider authenticated the account, but the governance source
    * revoked its subject's sessions at or after this second, so every request would refuse the session the callback
    * was about to mint and none was minted. The record names the account, which the provider vouched for.
@@ -131,7 +144,10 @@ export type AuditReason =
   /**
    * Under governance (docs/GOVERNANCE.md), a request named a connection the session's identity provider subject holds
    * no grant on: one that does not exist, one granted to someone else, an expired grant or a row Studio did not admit,
-   * which the 404 CONNECTION_NOT_FOUND it answers leaves indistinguishable. The record names the id that was asked for.
+   * which the 404 CONNECTION_NOT_FOUND it answers leaves indistinguishable. With the Kubernetes access review on
+   * (docs/SEED_CONNECTIONS.md), target `kubernetes-access/connection`, it names a connection the caller may not use: one
+   * that does not exist, one the review keeps from the caller or one its role may not see. The record names the id that
+   * was asked for.
    */
   | "connection_not_granted"
   // Passkey sign-in and management (#785). Each code has one meaning, so an operator can tell a

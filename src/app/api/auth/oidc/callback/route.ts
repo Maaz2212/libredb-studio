@@ -26,6 +26,9 @@ import { clientAddress } from "@/lib/api/client-address";
 import { emitAuditEvent, type AuditReason } from "@/lib/audit";
 import { AuthConfigError } from "@/lib/auth-errors";
 import { governanceEnabled } from "@/lib/governance/config";
+import { accessReviewEnabled } from "@/lib/kubernetes-access/config";
+import { accessReviewSignInRole } from "@/lib/kubernetes-access/gate";
+import { readGroupsClaim, recordGroups } from "@/lib/kubernetes-access/groups";
 import { governedIdentityAccepted, governedSignInRevoked } from "@/lib/local-accounts";
 
 const ROUTE = "GET /api/auth/oidc/callback";
@@ -117,18 +120,40 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${origin}${withBasePath("/login")}?error=oidc_config`);
     }
 
-    // Map role from claims
-    const claimValues = readRoleClaimValues(claims as Record<string, unknown>, oidcConfig.roleClaim);
-    const role = mapOIDCRole(
-      claims as Record<string, unknown>,
-      oidcConfig.roleClaim,
-      oidcConfig.adminRoles,
-      oidcConfig.userRoles,
-    );
     const identity = oidcUsername(claims as Record<string, unknown>) ?? claims.sub;
 
+    // With the Kubernetes access review on (docs/SEED_CONNECTIONS.md), the ID token's groups are what every review of
+    // this subject asserts, so a claim the store cannot hold refuses the sign-in, and the role claim is not read at
+    // all: the subject must pass the sign-in review, and admin comes only from a review of update on Studio's own
+    // Deployment, both decided here, once per sign-in.
+    const reviewed = accessReviewEnabled();
+    const groupsReading = reviewed
+      ? readGroupsClaim(claims as Record<string, unknown>)
+      : { ok: true as const, groups: [] };
+    if (!groupsReading.ok) {
+      logger.warn("OIDC callback: the groups claim cannot be used for the Kubernetes access review", {
+        route: "oidc/callback",
+        problem: groupsReading.problem,
+      });
+      cookieStore.delete({ name: "oidc-state", path: getBasePath() || "/" });
+      auditFailure("oidc_groups_refused", ip, String(identity));
+      return NextResponse.redirect(`${origin}${withBasePath("/login")}?error=oidc_groups_refused`);
+    }
+
+    // Map role from claims
+    const claimValues = reviewed ? [] : readRoleClaimValues(claims as Record<string, unknown>, oidcConfig.roleClaim);
+    const role = reviewed
+      ? await accessReviewSignInRole(claims.sub, groupsReading.groups)
+      : mapOIDCRole(
+          claims as Record<string, unknown>,
+          oidcConfig.roleClaim,
+          oidcConfig.adminRoles,
+          oidcConfig.userRoles,
+        );
+
     if (role === null) {
-      // The account holds none of OIDC_ADMIN_ROLES or OIDC_USER_ROLES, so it gets no session. The
+      // The account holds none of OIDC_ADMIN_ROLES or OIDC_USER_ROLES, or, with the Kubernetes access review on, its
+      // subject cannot be reviewed or the sign-in review does not allow it, so it gets no session. The
       // exchange consumed the state, so its cookie is deleted as after a sign-in. The provider
       // authenticated the account, so the record names it the way login_success does.
       cookieStore.delete({ name: "oidc-state", path: getBasePath() || "/" });
@@ -157,6 +182,9 @@ export async function GET(request: Request) {
       auditFailure("oidc_session_revoked", ip, String(identity));
       return NextResponse.redirect(`${origin}${withBasePath("/login")}?error=oidc_session_revoked`);
     }
+
+    // The groups record serves every request of the session minted below, so it is written first.
+    if (reviewed) recordGroups(claims.iss, claims.sub, groupsReading.groups);
 
     // Create local JWT session (same as password login). `username` keeps its display meaning, and the provider's
     // subject and issuer travel as the session's idpSubject and idpIssuer.
