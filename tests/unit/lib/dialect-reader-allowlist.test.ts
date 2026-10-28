@@ -2,7 +2,7 @@
  * Every reader of a query dialect outside the dialect registries, held to a closed list (vector-family spec 3.8).
  *
  * The registries (`src/lib/db/query-dialects.ts`, `src/lib/editor/dialect-editors.ts`, and `DIALECT_GENERATORS`
- * in `src/lib/query-generators.ts`) answer what the per-dialect arms used to: a tab type, a Monaco language, a
+ * in `src/lib/db/query-generators/index.ts`) answer what the per-dialect arms used to: a tab type, a Monaco language, a
  * formatter, three row-menu gates and the generated statements. A comparison of `queryDialect` anywhere else, a
  * read of the JSON language that would take a dialect's text for MongoDB's, or a negated read of the language that
  * would send a new member into one branch (#1085), is the #427 class coming back, so every such line under `src/`
@@ -98,31 +98,6 @@ const ALLOWED: readonly Reader[] = [
     path: "src/lib/editor/tab-language.ts",
     text: 'if (capabilities?.queryLanguage === "json") return "mongodb";',
     owner: "resolveTabType: MongoDB's rung, below the registry record's tabType",
-  },
-  {
-    path: "src/lib/query-generators.ts",
-    text: 'if (capabilities.queryLanguage === "json") return name;',
-    owner: "quoteIdentifier: JSON names are never SQL-quoted",
-  },
-  {
-    path: "src/lib/query-generators.ts",
-    text: 'if (capabilities.queryLanguage === "json") return path.join(".");',
-    owner: "quoteObjectPath: JSON addresses are never SQL-quoted",
-  },
-  {
-    path: "src/lib/query-generators.ts",
-    text: 'if (capabilities.queryLanguage === "json") {',
-    owner: "generateTableQuery: MongoDB's find, below the DIALECT_GENERATORS record",
-  },
-  {
-    path: "src/lib/query-generators.ts",
-    text: 'if (capabilities.queryLanguage === "json") {',
-    owner: "generateSelectQuery: MongoDB's find, below the DIALECT_GENERATORS record",
-  },
-  {
-    path: "src/lib/query-generators.ts",
-    text: 'if (capabilities.queryLanguage === "json") {',
-    owner: "generateCountQuery: MongoDB's count, below the DIALECT_GENERATORS record's count",
   },
 ];
 

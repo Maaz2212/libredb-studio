@@ -127,7 +127,8 @@ by family on disk:
 src/lib/db/
 ├── base-provider.ts          # abstract base: state, helpers, default metadata, getMonitoringData()
 ├── types.ts                  # DatabaseProvider interface + all DTOs
-├── errors.ts                 # DatabaseError hierarchy + mapDatabaseError()
+├── errors.ts                 # DatabaseError hierarchy
+├── map-database-error.ts     # mapDatabaseError(): a native driver error onto that hierarchy
 ├── factory.ts                # createDatabaseProvider() — dynamic import per type + provider cache
 └── providers/
     ├── sql/                  # postgres, mysql, sqlite, oracle, mssql (extend SQLBaseProvider)
@@ -545,6 +546,7 @@ An open Redis transaction is a `MULTI`, and the keyword that keeps it is `EXEC`,
 D74 gave the single-statement route the same `finally` as the script route, and `redis` implements the surface, so the notice reaches a reader whose open transaction is a `MULTI`.
 Naming `COMMIT` would tell them to type a command their engine does not have.
 Its row in `EXECUTION_UI` is declared in [`redis-execution-ui.ts`](../../src/lib/db/providers/keyvalue/redis-execution-ui.ts).
+What a tree click and Generate Query write is `REDIS_GENERATORS`, the `redis` row of `DIALECT_GENERATORS`, declared in [`redis-generators.ts`](../../src/lib/db/providers/keyvalue/redis-generators.ts) and read by the engine-agnostic dispatcher in `src/lib/query-generators.ts`.
 Its editor language, `redis`, is the row in `EDITOR_LANGUAGES` declared in [`redis-editor-language.ts`](../../src/lib/db/providers/keyvalue/redis-editor-language.ts): how the editor registers and tints it, and its completion source and formatter where it has one.
 The agent's consent card has no consent deadline chip or sentence for it.
 
@@ -739,7 +741,8 @@ touched. To change the database a connection reads by default, change its **Data
 Right-clicking a node in the schema tree (or its `⋮` menu) offers commands generated for that node,
 so you do not have to type them from memory. The generation is driven by the `queryDialect: 'redis'`
 capability, which routes the shared client-side query generators
-([`src/lib/query-generators.ts`](../../src/lib/query-generators.ts)) to Redis command output.
+([`src/lib/query-generators.ts`](../../src/lib/query-generators.ts)) to the dialect's row, `REDIS_GENERATORS` in
+[`redis-generators.ts`](../../src/lib/db/providers/keyvalue/redis-generators.ts), and so to Redis command output.
 
 Before #427 Redis declared no dialect, so those generators fell through to their MongoDB branch on
 the strength of `queryLanguage: 'json'` alone and every action emitted a

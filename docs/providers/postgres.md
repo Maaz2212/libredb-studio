@@ -1516,6 +1516,7 @@ It runs no seed load check.
 
 The rolled-back notice names `COMMIT` as the keyword that keeps an open transaction, and `postgres` has no consent deadline, so the agent's consent card shows no deadline chip or sentence for it.
 Its row in `EXECUTION_UI` is declared in [`postgres-execution-ui.ts`](../../src/lib/db/providers/sql/postgres-execution-ui.ts).
+How `mapDatabaseError` classifies its driver's errors, its statement timeout and lock timeout words, its cancel words and the words of its statement errors, is the `pg` row of `DRIVER_ERROR_CLASSIFIERS`, declared in [`postgres-driver-errors.ts`](../../src/lib/db/providers/sql/postgres-driver-errors.ts).
 
 ---
 
@@ -2480,7 +2481,7 @@ Each name in `standsAlone` was measured, one `CREATE TABLE probe (c <name>)` per
 
 ## 11. Error handling
 
-Native `pg` errors are mapped by `mapDatabaseError()` ([errors.ts](../../src/lib/db/errors.ts)) onto
+Native `pg` errors are mapped by `mapDatabaseError()` ([map-database-error.ts](../../src/lib/db/map-database-error.ts)) onto
 the shared hierarchy:
 
 | Situation | Error |

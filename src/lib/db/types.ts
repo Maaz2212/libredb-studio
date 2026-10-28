@@ -902,7 +902,7 @@ export interface KeyScanPage {
  * One action a row of a NON-RELATION kind offers, declared by the provider that writes its statement.
  *
  * The row menu offers it on every object of a kind named in `kinds`, and choosing it opens a new tab
- * that runs what the dialect's `rowAction` generator writes for that object (`src/lib/query-generators.ts`).
+ * that runs what the dialect's `rowAction` generator writes for that object (`src/lib/db/query-generators/index.ts`).
  * `id` is what the generator is asked for and stays stable; `label` is what the menu and the tab read.
  *
  * A row action reads and never writes: it runs on click, with no role asked and no editing step, so
@@ -1018,7 +1018,7 @@ export interface ProviderCapabilities {
    *
    * Those arms are now records: a member added here does not compile until it has one in each of
    * `QUERY_DIALECTS` (`src/lib/db/query-dialects.ts`), `DIALECT_EDITORS` (`src/lib/editor/dialect-editors.ts`)
-   * and `DIALECT_GENERATORS` (`src/lib/query-generators.ts`), and every other reader of this field and of
+   * and `DIALECT_GENERATORS` (`src/lib/db/query-generators/index.ts`), and every other reader of this field and of
    * `queryLanguage` is held to a closed list by `tests/unit/lib/dialect-reader-allowlist.test.ts`.
    */
   queryDialect?:
@@ -1480,7 +1480,7 @@ export interface ProviderCapabilities {
   /**
    * How this engine quotes an identifier, when the port cannot say.
    *
-   * `src/lib/query-generators.ts` has always derived the dialect from
+   * `src/lib/db/query-generators/index.ts` has always derived the dialect from
    * `defaultPort`, which worked only because every engine had a distinct one. That
    * assumption broke with #424 Phase 1: Elasticsearch and OpenSearch BOTH ship on
    * 9200 and they disagree about the quote character, so one port had to answer for

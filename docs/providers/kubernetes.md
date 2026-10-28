@@ -265,6 +265,7 @@ That identity's RBAC decides what the agent can see, so give it a ServiceAccount
 
 The rolled-back notice names `COMMIT` as the keyword that keeps an open transaction, and `kubernetes` has no consent deadline, so the agent's consent card shows no deadline chip or sentence for it.
 Its row in `EXECUTION_UI` is declared in [`execution-ui.ts`](../../src/lib/db/providers/platform/kubernetes/execution-ui.ts).
+What a tree click and Generate Query write is `KUBECTL_GENERATORS`, the `kubectl` row of `DIALECT_GENERATORS`, declared in [`generators.ts`](../../src/lib/db/providers/platform/kubernetes/generators.ts) and read by the engine-agnostic dispatcher in `src/lib/query-generators.ts`.
 Its editor language, `kubectl`, is the row in `EDITOR_LANGUAGES` declared in [`editor-language.ts`](../../src/lib/db/providers/platform/kubernetes/editor-language.ts): how the editor registers and tints it, and its completion source and formatter where it has one.
 
 ## 5. Query interface
@@ -314,6 +315,7 @@ The grid pages the list form of a single-type `get` with a paging line of Studio
 A statement reads at most 5,000 rows; a page at or past that answers a sentence to narrow the list with `-l` or `--field-selector`.
 
 Query history masks the values of `--token`, `--password`, `--client-key`, `--client-certificate`, `--from-literal` and `--docker-password` in every spelling, though the console refuses every line that carries them; a tab keeps what was typed, a saved query keeps what was saved, and the embedded workspace writes no history.
+Those flags are the console's own `CREDENTIAL_FLAGS` list, which the dialect's row in `QUERY_DIALECTS` names: the row is declared in [`query-dialect.ts`](../../src/lib/db/providers/platform/kubernetes/query-dialect.ts).
 
 ### 5.1 SQL grammar
 
@@ -415,7 +417,7 @@ The agent reads it through `runServerPack` and `agentEnginePack`.
 Both overlays are empty, so the engine resolves to the `kubectl` family pack itself.
 The `kubectl` statement-language family has no dialect-bound member.
 This overlay overrides no Shared member, so every Shared member is the `kubectl` statement-language family's own.
-The cluster-* requirements hold here: `AGENT_REQUIREMENT_ENGINES` mirrors `cluster-usage-reading` and `cluster-workload-reading` from this provider's `agentReadings`, which the client tier cannot reach.
+The cluster-* requirements hold here: the `kubectl` pack's client facet names this engine for `cluster-usage-reading` and `cluster-workload-reading`, mirroring this provider's `agentReadings`, which the client tier cannot reach, and `AGENT_REQUIREMENT_ENGINES` reads them through `AGENT_PACK_REQUIREMENTS`.
 A pack does not open agent mode: execution is gated by `AGENT_EXECUTION_ENGINES` and the execution-profile check.
 
 ### 9.2 SQL writing

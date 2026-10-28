@@ -360,7 +360,7 @@ at most once regardless of how many `OracleProvider` instances (i.e. connections
 Oracle Instant Client itself must already be installed at the given path — this provider does not
 download or bundle it. If the client cannot be loaded, the constructor fails fast with a
 `DatabaseConfigError` that names `ORACLE_CLIENT_LIB_DIR` and says which of the three failures it is
-(`describeOracleClientLoadFailure()` in [errors.ts](../../src/lib/db/errors.ts) decides the wording;
+(`describeOracleClientLoadFailure()` in [oracle-driver-errors.ts](../../src/lib/db/providers/sql/oracle-driver-errors.ts) decides the wording;
 [§11](#11-error-handling) lists the codes).
 
 #### On Linux the variable alone is not enough
@@ -508,6 +508,8 @@ It has no `readTls`, so a pasted `oracle://` URL carries no SSL mode into the fo
 
 The rolled-back notice names `COMMIT` as the keyword that keeps an open transaction, and `oracle` has no consent deadline, so the agent's consent card shows no deadline chip or sentence for it.
 Its row in `EXECUTION_UI` is declared in [`oracle-execution-ui.ts`](../../src/lib/db/providers/sql/oracle-execution-ui.ts).
+What a tree click and Generate Query write is `ORACLE_SQL_GENERATORS`, its row of `SQL_PORT_GENERATORS` keyed by its default port, declared in [`oracle-generators.ts`](../../src/lib/db/providers/sql/oracle-generators.ts) and read by the engine-agnostic dispatcher in `src/lib/query-generators.ts`.
+How `mapDatabaseError` classifies its driver's errors, its Thin-mode refusals, its statement and access-refusal error numbers and its ORA- connection and missing-table words, is the `oracledb` row of `DRIVER_ERROR_CLASSIFIERS`, declared in [`oracle-driver-errors.ts`](../../src/lib/db/providers/sql/oracle-driver-errors.ts).
 
 ---
 
@@ -2345,7 +2347,7 @@ A zoned column is written through `FROM_TZ(..., 'UTC')`, which keeps the instant
 
 ## 11. Error handling
 
-`mapDatabaseError()` ([errors.ts](../../src/lib/db/errors.ts)) has **Oracle-specific** branches:
+`mapDatabaseError()` ([map-database-error.ts](../../src/lib/db/map-database-error.ts)) reads the `oracledb` row of `DRIVER_ERROR_CLASSIFIERS` ([oracle-driver-errors.ts](../../src/lib/db/providers/sql/oracle-driver-errors.ts)) for the **Oracle-specific** cases:
 
 | Situation | Error |
 |-----------|-------|
@@ -2649,7 +2651,7 @@ It prints no refusal reason.
 - SQL base: [`src/lib/db/providers/sql/sql-base.ts`](../../src/lib/db/providers/sql/sql-base.ts)
 - Query limiter: [`src/lib/db/utils/query-limiter.ts`](../../src/lib/db/utils/query-limiter.ts)
 - Interface & DTOs: [`src/lib/db/types.ts`](../../src/lib/db/types.ts)
-- Errors (incl. `ORA-*` mapping): [`src/lib/db/errors.ts`](../../src/lib/db/errors.ts)
+- Errors: [`src/lib/db/errors.ts`](../../src/lib/db/errors.ts), and the `ORA-*` mapping in [`src/lib/db/providers/sql/oracle-driver-errors.ts`](../../src/lib/db/providers/sql/oracle-driver-errors.ts)
 - Tests: [`tests/integration/db/oracle-provider.test.ts`](../../tests/integration/db/oracle-provider.test.ts)
 - API contract: [`docs/API_DOCS.md`](../API_DOCS.md)
 - Sibling provider docs: [PostgreSQL](./postgres.md) · [MySQL](./mysql.md) · [Trino](./trino.md) · [Redis](./redis.md)

@@ -92,8 +92,10 @@ It is optional: absent means the connected database, which is what every stateme
 A non-string or empty value is a `QueryError`, raised before any database is opened: `MongoClient.db()` opens any string it is given, and a database that does not exist answers every read with 0 rows.
 A database the credentials cannot read raises the server's own sentence (`not authorized on analytics to execute command ...`), answered `403 PERMISSION_DENIED` ([§10](#10-error-handling)), never an empty result.
 
+What a tree click, Generate Query and Generate Count Query write is `MONGODB_JSON_GENERATORS`, the `json` row of `LANGUAGE_GENERATORS`, declared in [`generators.ts`](../../src/lib/db/providers/document/mongodb/generators.ts) and read by the engine-agnostic dispatcher in `src/lib/query-generators.ts`.
+Its quoting, a name as it is, serves every JSON-language declaration; its documents only a declaration with no query dialect of its own, which is MongoDB's.
 Every statement the product writes for a collection carries the key: the tree click, Generate Query and the count query (`generateTableQuery`, `generateSelectQuery`, `generateCountQuery`), the profiler (`/api/db/profile`) and the test data generator.
-All five read it through `jsonCommandAddress()` in [`query-generators.ts`](../../src/lib/query-generators.ts), which takes the segment the declaration assigns to the `schema` level rather than `path[0]` (standing ruling 5g) and refuses a path that does not match the declared levels.
+All five read it through `jsonCommandAddress()` in [`generators.ts`](../../src/lib/db/providers/document/mongodb/generators.ts), which takes the segment the declaration assigns to the `schema` level rather than `path[0]` (standing ruling 5g) and refuses a path that does not match the declared levels.
 Before #843 every one of them named the collection alone, so a collection outside the connected database read, profiled and was written as the connected database's same-named collection.
 
 #### Extended JSON in the query
@@ -182,7 +184,7 @@ Caveats baked into this approach:
   subdocument beside its own children, and MongoDB refuses a projection or `$project` that names
   both: `Path collision at address.city remaining portion city` (measured on `mongo:8.2.12`, where
   Generate Query and the profiler both failed on every collection with a subdocument).
-  `outermostFieldPaths()` in [`query-generators.ts`](../../src/lib/query-generators.ts) drops every
+  `outermostFieldPaths()` in [`generators.ts`](../../src/lib/db/providers/document/mongodb/generators.ts) drops every
   path whose ancestor is listed, so `address`, `address.city` and `address.geo.lat` project as
   `{ "address": 1 }`; `addressBook` is not a child of `address`. Generate Query (shown as Generate
   Find, `generateSelectQuery`) and the profiler's `$project` (`/api/db/profile`) both go through
@@ -416,6 +418,7 @@ It runs no seed load check.
 
 The rolled-back notice names `COMMIT` as the keyword that keeps an open transaction, and `mongodb` has no consent deadline, so the agent's consent card shows no deadline chip or sentence for it.
 Its row in `EXECUTION_UI` is declared in [`execution-ui.ts`](../../src/lib/db/providers/document/mongodb/execution-ui.ts).
+How `mapDatabaseError` classifies its driver's errors, its server codes of an access refusal, is the `mongodb` row of `DRIVER_ERROR_CLASSIFIERS`, declared in [`driver-errors.ts`](../../src/lib/db/providers/document/mongodb/driver-errors.ts).
 Its editor language, `json`, is the shared row in `EDITOR_LANGUAGES` declared in [`json.ts`](../../src/lib/db/editor-language/json.ts), because every JSON read request renders in it too: that row holds the JSON formatter and the accent.
 This provider contributes only the row's completion source, `MONGODB_JSON_COMPLETIONS` in [`editor-language.ts`](../../src/lib/db/providers/document/mongodb/editor-language.ts), which registers only where the connection declares no dialect.
 
@@ -1261,7 +1264,7 @@ The module's `insertDocuments` writes the test data generator's insert as this p
 
 ## 10. Error handling
 
-MongoDB uses the shared `mapDatabaseError()` ([errors.ts](../../src/lib/db/errors.ts)), which reads the
+MongoDB uses the shared `mapDatabaseError()` ([map-database-error.ts](../../src/lib/db/map-database-error.ts)), which reads the
 server's `code` beside its `codeName` for the two refusals of the caller and has no other MongoDB-specific
 branch:
 

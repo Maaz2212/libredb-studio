@@ -1517,7 +1517,7 @@ Not fixed in #1085: the maintainer's decision for that PR is that it touches no 
 `fetchJson` in `src/lib/db/providers/document/couchbase/http-transport.ts`, the plaintext path, maps a failure of `fetch` itself to a `CouchbaseError` ("Couchbase request failed: ..."), but reads the body with `const text = await response.text()` after that `try`, and only then asks `rejectRedirect` about the status.
 So a body that cannot be read, because the connection was reset after the status line, rejects with the runtime's own error, which is neither a `CouchbaseError` nor, for a 3xx, the redirect refusal.
 96207f17 (#1086) moved that read ahead of `rejectRedirect` to drain a refused redirect's body, which is how a redirect whose body fails came to lose its refusal; a 200 whose body fails escaped the same way before it.
-The provider then holds an unclassified `TypeError`: `mapDatabaseError` in `src/lib/db/errors.ts` answers a bare `DatabaseError` carrying the runtime's message, and through `connect()` it becomes a `ConnectionError` without the redirect sentence.
+The provider then holds an unclassified `TypeError`: `mapDatabaseError` in `src/lib/db/map-database-error.ts` answers a bare `DatabaseError` carrying the runtime's message, and through `connect()` it becomes a `ConnectionError` without the redirect sentence.
 `hrana-transport.ts` in `src/lib/db/providers/sql/libsql/` has the same shape by reading, `const text = await response.text()` after the `try` that maps a `fetch` failure to a `LibSQLTransportError`; not measured.
 The Prometheus request path reads its body inside a mapping of its own and releases a refused redirect's body unread (`sendPlain` in `src/lib/db/providers/timeseries/prometheus/request.ts`).
 
@@ -3647,7 +3647,7 @@ Found 2026-10-16 in the review of #1790 (issue #1614).
 
 ### D366. `mapDatabaseError` classes MongoDB network and server-selection failures as timeouts or generic errors on the editor path
 
-`mapDatabaseError` in `src/lib/db/errors.ts` classes an error by its message, and two of the MongoDB driver's connection failures land in the wrong class on the editor path (`MongoDBProvider.query()` and `runMaintenance()` in `src/lib/db/providers/document/mongodb/index.ts`).
+`mapDatabaseError` in `src/lib/db/map-database-error.ts` classes an error by its message, and two of the MongoDB driver's connection failures land in the wrong class on the editor path (`MongoDBProvider.query()` and `runMaintenance()` in `src/lib/db/providers/document/mongodb/index.ts`).
 A `MongoServerSelectionError` ("Server selection timed out after 30000 ms") becomes a `TimeoutError` reported as a query timeout, and a `MongoNetworkError` whose message names no refused connection, such as a socket the server closed, becomes a plain `DatabaseError`.
 So a user whose server went away is told that a query timed out, or is told nothing about the connection.
 The object routes do not map the driver's error at all: `listContainers`, `listObjects`, `describeObject` and `describeObjects` let it reach `createErrorResponse` in `src/lib/api/errors.ts`, which answers it as an internal error (500), and `countObjects` turns it into an unavailable count; only `readObjectSource` answers a transport failure as a `ConnectionError`.
@@ -3722,7 +3722,7 @@ Found 2026-10-17 in the review of #1790 (issue #1614); it is older than that cha
 
 ### D373. Providers that map their own errors answer a missing privilege as a refused credential or a statement error
 
-`mapDatabaseError` in `src/lib/db/errors.ts` answers a privilege the credential lacks with `PermissionDeniedError`, HTTP 403 `PERMISSION_DENIED`, read from the driver's code, and PostgreSQL, MySQL, SQL Server, Oracle, Db2 and MongoDB reach it.
+`mapDatabaseError` in `src/lib/db/map-database-error.ts` answers a privilege the credential lacks with `PermissionDeniedError`, HTTP 403 `PERMISSION_DENIED`, read from the driver's code, and PostgreSQL, MySQL, SQL Server, Oracle, Db2 and MongoDB reach it.
 A provider that maps its own driver's errors decides that refusal itself, and the mappers read on 2026-10-15 decide it two other ways.
 
 - As a refused credential, `AuthenticationError` and 401 `AUTH_ERROR`, which tells a user whose credential is right to re-enter it: ClickHouse `ACCESS_DENIED` (`mapClickHouseError` in `src/lib/db/providers/sql/clickhouse/index.ts`), Druid `FORBIDDEN` (`src/lib/db/providers/sql/druid/index.ts`), Couchbase HTTP 403 (`mapCouchbaseError` in `src/lib/db/providers/document/couchbase/index.ts`, pinned by its integration test "a missing privilege becomes an AuthenticationError"), Trino `PERMISSION_DENIED` (`FAULT_CATEGORIES` in `src/lib/db/providers/sql/trino/http-transport.ts`), Elasticsearch and OpenSearch HTTP 403 (`responseFailure` in `src/lib/db/providers/sql/search/http-transport.ts`), Kafka's `authorization` category (`src/lib/db/providers/stream/kafka/errors.ts`) and RabbitMQ's `NOT_ALLOWED - access to vhost` (`amqpCloseError` in `src/lib/db/providers/stream/rabbitmq/errors.ts`); Qdrant `forbidden`, Firestore 403 and InfluxDB 403 only at connect.
@@ -3892,7 +3892,7 @@ Found 2026-10-21 during the VS Code extension work (PR 11), and deferred because
 
 ### D389. A failed query reaches no client with the driver's detail
 
-`mapDatabaseError` in `src/lib/db/errors.ts` builds `QueryError` from the driver's message and position only, so the detail a driver gives is dropped before any route answers.
+`mapDatabaseError` in `src/lib/db/map-database-error.ts` builds `QueryError` from the driver's message and position only, so the detail a driver gives is dropped before any route answers.
 PostgreSQL's detail for a unique violation, "Key (id)=(1) already exists.", reaches neither the web routes' error body nor the VS Code extension.
 Measured 2026-10-21 by the VS Code extension's integration leg against its PostgreSQL container: the unique violation answered only "duplicate key value violates unique constraint" and the constraint name.
 The extension's Results view renders a detail when one arrives, so its tests show one through `SYNTHETIC_RUN_FAILED_WITH_DETAIL` in `vscode-extension/test/fixtures/results-sequences.ts`, which the comparison with live runs leaves out by name.
@@ -5015,7 +5015,7 @@ Not fixed there: the other engines' arms are outside the etcd PR, and so is the 
 
 ### U68. LibreDB's click and Generate Select write a key bare, so a line for a key that holds white space or a quote mark does not reach that key
 
-The LibreDB arm of `generateTableQuery` and `libredbCheatsheet` in `src/lib/query-generators.ts` write the key or prefix bare into their `prefix`, `get`, `put` and `delete` lines.
+The LibreDB row of `generateTableQuery` and `libredbCheatsheet` in `src/lib/db/providers/embedded/libredb-generators.ts` write the key or prefix bare into their `prefix`, `get`, `put` and `delete` lines.
 `tokenize` in `src/lib/db/providers/embedded/libredb.ts` splits a line at any white space outside quotes and reads `'` and `"` as quoting, which it removes, so those lines name another key or none, and a click on a tree row runs the line it writes.
 It needs neither U67's unusual character nor its dialog: a plain space is enough.
 Measured 2026-10-02 through the generators and the provider's `query` on a scratch store holding the keys `a b` and `a`: the click `get a b` shows the value of `a`, `put a b example` sets `a` to `b example`, and `delete a b` deletes `a` while `a b` stays.
@@ -7445,19 +7445,19 @@ says which.
 ### B78. Generated Redis and LibreDB command text carries em dashes
 
 House style forbids em and en dashes in anything that lands in the repo or in front of a user.
-`src/lib/query-generators.ts` emits five of them into text a user reads in the editor, reproduced in
+The Redis and LibreDB generator rows (`src/lib/db/providers/keyvalue/redis-generators.ts` and `src/lib/db/providers/embedded/libredb-generators.ts`) emit five of them into text a user reads in the editor, reproduced in
 the browser on a live Redis 8 during task 28b by pressing Generate Command on a key-prefix row:
 
     # Redis commands for "bulk:*" — select a line and Run Selected.
     # List keys under this prefix — ONE scan iteration, not the whole set.
     # Create or update it — this overwrites an existing value
 
-plus `:229` for the hash variant and `:411` for the LibreDB header. Eleven more sit in that file's
+plus the hash variant's line and the LibreDB header. More sit in those files'
 doc comments. Pre-existing rather than #789's, and named here because task 27 found it and it would
 otherwise disappear: it is not one edit but a small sweep, and
 `tests/unit/lib/query-generators.test.ts` pins the exact strings.
 
-**Done when:** no emitted line in that file carries an em or en dash, and its tests assert the new
+**Done when:** no emitted line in those files carries an em or en dash, and its tests assert the new
 wording.
 
 ### B80. The inventory's two bounds do not reach the container enumeration
