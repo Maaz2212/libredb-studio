@@ -1135,7 +1135,7 @@ An exporter with a ServiceAccount of its own reads each database's credential Se
 Studio's own pod never holds a token that can read a database Secret.
 It is off unless `SEED_KUBERNETES_DISCOVERY_PATH` is set, and always off in [governance mode](#governance-mode).
 With the [Kubernetes access review](#kubernetes-access-review) on, a discovered database is listed and opened only for a person the cluster lets `get` its credential Secret; with the review off, for the admin role only, as a [CapRover](#platform-discovery-caprover) database is.
-The chart does not render the exporter yet, so deploy it as described below.
+The Helm chart renders the exporter, its RBAC, the export Secret and Studio's mount from `discovery.kubernetes` ([chart README](../charts/libredb-studio/README.md#rancher-mode-values)); without the chart, deploy them as described below.
 
 ### The Kubernetes exporter
 
@@ -1312,6 +1312,7 @@ If the record is gone again right after that sign-in, the login page says so wit
 The memory holds the records of at most 4096 subjects; past that the oldest record goes first, and its session signs in again.
 A session keeps the groups it signed in with, and signing out of the identity provider does not end a Studio session, so the review's mode allows a session of at most 900 seconds (`AUTH_SESSION_TTL_SECONDS`).
 A session without an identity provider subject, such as a password session minted before the review was switched on, was decided by no review, so it is refused and its cookie cleared.
+Once its subject signs in again, an OIDC session minted before the review was switched on keeps the role it was minted with until it expires, so switching the review on for an install that already signs people in through OIDC rotates `JWT_SECRET` (`secrets.jwtSecret` in the chart) in the same upgrade.
 
 ### What the review switches off
 
@@ -1394,6 +1395,7 @@ volumes:
 
 The kubelet rotates a projected token before it expires, and Studio reads the file again for every review.
 Run one replica: the groups of each sign-in and the cached answers live in that replica's memory.
+The Helm chart renders the ClusterRole, its binding, the projected volume and these variables from `accessReview` ([chart README](../charts/libredb-studio/README.md#rancher-mode-values)), and fails the render for every combination the boot checks above refuse.
 
 ---
 
