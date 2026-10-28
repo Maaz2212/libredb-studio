@@ -534,9 +534,10 @@ reach other catalogs. The session schema is also supported in seeded connections
 ### 4.2 There is no connection string — yet
 
 `supportsConnectionString: false`. Trino's own JDBC URL — `jdbc:trino://host:port/catalog/schema` —
-is a real and widely pasted form, but the shared parser in `src/lib/connection-string-parser.ts` does
-not accept it. Advertising a field that would reject everything a user pastes is worse than not
-offering it, so this stays false until that parser learns the scheme.
+is a real and widely pasted form, but Trino's connection string row
+(`src/lib/db/providers/sql/trino/connection-string.ts`) has no `paste`, so nothing reads it.
+Advertising a field that would reject everything a user pastes is worse than not
+offering it, so this stays false until that row reads the scheme.
 
 ### 4.3 TLS and the password rule
 
@@ -580,7 +581,7 @@ is what the refusal message points at.
 
 ### Connection string
 
-Trino has no connection string scheme, no `readTls` and no seed load check ([`connection-string.ts`](../../src/lib/db/providers/sql/trino/connection-string.ts)).
+Trino has no connection string scheme, no `readTls`, no `paste` and no seed load check ([`connection-string.ts`](../../src/lib/db/providers/sql/trino/connection-string.ts)).
 Trino is the sharpest version of the scheme gap: it has a canonical URL, `jdbc:trino://host:port/catalog/schema`, but that is a JDBC URL and not a URI, since `new URL()` reads its scheme as `jdbc:`.
 Stripping the prefix would invent a `trino://` form no Trino tool emits, so the scheme is `null`, its capabilities say `supportsConnectionString: false`, and its form offers no paste toggle.
 
@@ -1937,7 +1938,7 @@ See [`docs/API_DOCS.md`](../API_DOCS.md) for the full request/response contract.
   ([§3.1](#31-the-header-prefix-is-data-so-prestodb-is-a-descriptor)).
 - **No `EXPLAIN ANALYZE`.** Never a rendering gap: that form *executes* the statement, and a plan
   view must not run the user's query ([§5.6](#56-explain-is-the-planning-form-only)).
-- **No connection string.** Needs `connection-string-parser.ts` to learn `jdbc:trino://`
+- **No connection string.** Needs a `paste` in Trino's connection string row that reads `jdbc:trino://`
   ([§4.2](#42-there-is-no-connection-string--yet)).
 - **No positional parameters.** Needs `PREPARE`/`EXECUTE` and the prepared-statement header
   ([§5.1](#51-execution)).

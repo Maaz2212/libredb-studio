@@ -362,8 +362,8 @@ libsql://<database>-<org>.turso.io?authToken=<jwt>
 
 That is the URL `turso db show --url` and the dashboard print. `libsql://` implies TLS and 443, and
 there is no plaintext form of the scheme: a self-hosted server on plain HTTP is reached through the
-host/port fields with TLS off, because `http://` already resolves to ClickHouse in
-`src/lib/connection-string-parser.ts` and two engines cannot own one scheme.
+host/port fields with TLS off, because `http://` already resolves to ClickHouse's connection string
+row and two engines cannot own one scheme.
 
 ### 4.3 Getting a token
 
@@ -419,6 +419,7 @@ Its credential is the token in `?authToken=` or the password in its authority, s
 
 The scheme shown for libSQL is `libsql://`.
 Its row in `CONNECTION_STRING` is declared in [`connection-string.ts`](../../src/lib/db/providers/sql/libsql/connection-string.ts).
+Its `paste` claims `libsql://`, with port 443 by default, and reads the token from `authToken`.
 It has no `readTls`: a `libsql://` URL is TLS always and has no plaintext form, so a paste sets `require`.
 It runs no seed load check.
 

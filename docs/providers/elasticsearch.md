@@ -522,11 +522,11 @@ paste tab. Two independent reasons, the same pair Druid records:
 - **There is no URI convention for this HTTP surface.** A cluster is addressed by host and port; the
   official client takes a `node` URL, which is not a credential-carrying DSN the shared parser could
   round-trip.
-- **`http://` and `https://` are already claimed by ClickHouse** in
-  [`connection-string-parser.ts`](../../src/lib/connection-string-parser.ts) (#264), where an HTTP URL
-  *is* the canonical connection target.
+- **`http://` and `https://` are already claimed by ClickHouse** in its connection string row
+  ([`src/lib/db/providers/sql/clickhouse/connection-string.ts`](../../src/lib/db/providers/sql/clickhouse/connection-string.ts), #264),
+  where an HTTP URL *is* the canonical connection target.
 
-`connection-string-parser.ts` is therefore **not touched** by this provider, and the consequence is
+This provider's connection string row therefore has **no `paste`**, and the consequence is
 recorded rather than hidden: pasting `http://localhost:9200` selects ClickHouse. The connection-form
 hook says so too — its unparseable-string message lists the schemes that do exist and deliberately
 omits these two (`handlePasteConnectionString` in [`use-connection-form.ts`](../../src/hooks/use-connection-form.ts)).
@@ -578,7 +578,7 @@ redirect would take the Basic or `ApiKey` credential and the statement to wherev
 
 ### Connection string
 
-`elasticsearch` has no connection string scheme, no `readTls` and no seed load check: every field of its row in `CONNECTION_STRING` is `null` ([`elasticsearch-connection-string.ts`](../../src/lib/db/providers/sql/search/elasticsearch-connection-string.ts)).
+`elasticsearch` has no connection string scheme, no `readTls`, no `paste` and no seed load check: every field of its row in `CONNECTION_STRING` is `null` ([`elasticsearch-connection-string.ts`](../../src/lib/db/providers/sql/search/elasticsearch-connection-string.ts)).
 `apiKeyId` and `apiKeySecret` are its seed-only fields, declared in `SEED_ONLY_FIELDS` in `src/lib/db/connection-fields.ts`: a seed of any other engine that carries the pair is refused.
 OpenSearch refuses the pair too: nothing here has measured whether OpenSearch's security plugin accepts `Authorization: ApiKey`, so a seed that carries it is rejected rather than listed as a connection that silently falls back to user/password.
 

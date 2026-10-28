@@ -464,9 +464,10 @@ const connection = {
 paste tab. Two independent reasons, the same pair Druid records: there is **no URI convention** for
 this HTTP surface (the official client takes a `node` URL, which is not a credential-carrying DSN the
 shared parser could round-trip), and **`http://` / `https://` are already claimed by ClickHouse** in
-[`connection-string-parser.ts`](../../src/lib/connection-string-parser.ts) (#264).
+its connection string row
+([`src/lib/db/providers/sql/clickhouse/connection-string.ts`](../../src/lib/db/providers/sql/clickhouse/connection-string.ts), #264).
 
-`connection-string-parser.ts` is therefore **not touched** by this provider. The consequence is
+This provider's connection string row therefore has **no `paste`**. The consequence is
 recorded rather than hidden — pasting `http://localhost:9201` selects ClickHouse — and the
 connection-form hook's unparseable-string message deliberately omits both search ids
 (`handlePasteConnectionString` in [`use-connection-form.ts`](../../src/hooks/use-connection-form.ts)).
@@ -521,7 +522,7 @@ redirect would take the Basic credential and the statement to wherever the serve
 
 ### Connection string
 
-`opensearch` has no connection string scheme, no `readTls` and no seed load check: every field of its row in `CONNECTION_STRING` is `null` ([`opensearch-connection-string.ts`](../../src/lib/db/providers/sql/search/opensearch-connection-string.ts)).
+`opensearch` has no connection string scheme, no `readTls`, no `paste` and no seed load check: every field of its row in `CONNECTION_STRING` is `null` ([`opensearch-connection-string.ts`](../../src/lib/db/providers/sql/search/opensearch-connection-string.ts)).
 
 ### Execution UI
 

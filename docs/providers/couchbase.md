@@ -461,8 +461,10 @@ const connection = {
 ### 4.2 Connection strings
 
 `supportsConnectionString` is `true`, and the UI parser, `parseConnectionString()`
-([`connection-string-parser.ts`](../../src/lib/connection-string-parser.ts)), decomposes the URL
-into discrete fields before the provider sees it:
+([`connection-string-parser.ts`](../../src/lib/connection-string-parser.ts)), hands the URL to
+Couchbase's connection string row
+([`connection-string.ts`](../../src/lib/db/providers/document/couchbase/connection-string.ts)), which
+decomposes it into discrete fields before the provider sees it:
 
 | Input | host | port | database (bucket) |
 |-------|------|------|-------------------|
@@ -539,6 +541,7 @@ there is reported as an HTTP failure, `Couchbase request failed with HTTP 302`, 
 
 The scheme shown for Couchbase is `couchbase://`, and the parser also accepts `couchbases://`.
 Its row in `CONNECTION_STRING` is declared in [`connection-string.ts`](../../src/lib/db/providers/document/couchbase/connection-string.ts).
+Its `paste` claims `couchbase://` and `couchbases://`, and stores only the management port, 8091 or 18091, since the query ports are discovered from the cluster.
 It has no `readTls`: the scheme itself is the TLS, so `couchbases://` sets `require` and `couchbase://` sets `disable`.
 It runs no seed load check.
 

@@ -780,13 +780,13 @@ paste tab. Two independent reasons:
 
 - **Druid has no URI convention for its HTTP SQL API.** Its own JDBC driver addresses Avatica
   (`jdbc:avatica:remote:url=http://host:8888/druid/v2/sql/avatica/`), which is not a URL the shared
-  parser could round-trip into host/port/user/password. Inventing `druid://` would add a parser branch
+  parser could round-trip into host/port/user/password. Inventing `druid://` would add a paste reader
   for a string no Druid user has ever typed.
-- **`http://` and `https://` are already claimed by ClickHouse** in
-  [`connection-string-parser.ts`](../../src/lib/connection-string-parser.ts) (#264), where an HTTP URL
-  *is* the canonical connection target.
+- **`http://` and `https://` are already claimed by ClickHouse** in its connection string row
+  ([`src/lib/db/providers/sql/clickhouse/connection-string.ts`](../../src/lib/db/providers/sql/clickhouse/connection-string.ts), #264),
+  where an HTTP URL *is* the canonical connection target.
 
-`connection-string-parser.ts` is therefore **not touched by this provider**, and
+This provider's connection string row therefore has **no `paste`**, and
 [`tests/unit/lib/connection-string-parser.test.ts`](../../tests/unit/lib/connection-string-parser.test.ts)
 pins both halves of the absence so a future reader does not read it as a gap: `druid://` parses to
 `null`, and `http://localhost:8888` still detects as `clickhouse`. The consequence is recorded rather
@@ -834,7 +834,7 @@ redirect would take the Basic credential and the statement to wherever the serve
 
 ### Connection string
 
-`druid` has no connection string scheme, no `readTls` and no seed load check: every field of its row in `CONNECTION_STRING` is `null` ([`connection-string.ts`](../../src/lib/db/providers/sql/druid/connection-string.ts)).
+`druid` has no connection string scheme, no `readTls`, no `paste` and no seed load check: every field of its row in `CONNECTION_STRING` is `null` ([`connection-string.ts`](../../src/lib/db/providers/sql/druid/connection-string.ts)).
 Druid is reached over plain HTTP through the form, so inventing `druid://` would put a scheme on the login page that `parseConnectionString` rejects.
 
 ### Execution UI

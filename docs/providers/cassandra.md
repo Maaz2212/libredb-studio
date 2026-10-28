@@ -476,7 +476,7 @@ This is a declared boundary, not a default: `endOpenQueryTransaction` is optiona
 `supportsConnectionString: false`, and the form offers no paste toggle. The driver needs contact
 points **plus** `localDataCenter`, and no URI convention in use carries the second — so a
 `cassandra://host:9042/keyspace` form would parse into a connection that cannot open, which is worse
-than no paste at all. `connection-string-parser.ts` has no branch for the scheme and
+than no paste at all. Its connection string row has no `paste` for the scheme, and
 `ENGINE_URI_SCHEMES` no entry.
 
 ### 4.3 Connect is a session plus one statement
@@ -495,7 +495,7 @@ excluded by exact NAME, never by a prefix", #1428).
 
 ### Connection string
 
-`cassandra` has no connection string scheme, no `readTls` and no seed load check: every field of its row in `CONNECTION_STRING` is `null` ([`connection-string.ts`](../../src/lib/db/providers/sql/cassandra/connection-string.ts)).
+`cassandra` has no connection string scheme, no `readTls`, no `paste` and no seed load check: every field of its row in `CONNECTION_STRING` is `null` ([`connection-string.ts`](../../src/lib/db/providers/sql/cassandra/connection-string.ts)).
 
 ### Execution UI
 
