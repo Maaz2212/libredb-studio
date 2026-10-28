@@ -73,6 +73,11 @@ Those fixtures need shapes that stay unresolvable once `\` is understood before 
 - **MySQL connection charset.** On a `latin1` connection a leading U+00A0 executes. `buildPoolConfig`
   passes the user's connection string straight to mysql2 as `uri`, so the charset is outside the
   readers' view.
+- **Druid's untagged `$$`.** The span reader reads an untagged `$$ … $$` run as a dollar string on every
+  dialect, and Druid reads `$` as an identifier character. So in `SELECT id AS $$ FROM libredb_demo -- $$`
+  Druid sees a `--` comment where the reader sees a string, and the limiter writes its bound inside that
+  comment and reports the read as bounded. Druid SQL cannot write, so the cost is an unbounded read.
+  Closing it needs a grammar fact that turns the untagged form off, a change to the shared reader.
 
 ### S4. MSSQL: a parameterised page is still unrecognised
 
@@ -96,9 +101,10 @@ it writes `DEFAULT_SQL_GRAMMAR.<fact>`. Three such sites remain, all on the same
 `#` and block-comment nesting are now established for every dialect that has a grammar row.
 ClickHouse's three facts were established after this entry was first written.
 
-**A different state, not an undecided fact:** druid and libredb declare `grammar: DEFAULT_SQL_GRAMMAR` in
-their modules (`src/lib/db/providers/sql/druid/sql-grammar.ts`, `src/lib/db/providers/embedded/libredb-sql-grammar.ts`), so they read the whole default. Nobody has probed them.
+**A different state, not an undecided fact:** libredb declares `grammar: DEFAULT_SQL_GRAMMAR` in
+its module (`src/lib/db/providers/embedded/libredb-sql-grammar.ts`), so it reads the whole default. Nobody has probed it.
 Couchbase left this list on 2026-10-28: every fact of `COUCHBASE_GRAMMAR` (`src/lib/db/providers/document/couchbase/sql-grammar.ts`) was read off the SQL++ lexer and probed on Couchbase Server 8.0.2 Community.
+Druid left this list on 2026-10-28: every fact of `DRUID_GRAMMAR` (`src/lib/db/providers/sql/druid/sql-grammar.ts`) was read off Druid's Calcite parser and probed on Apache Druid 37.0.0.
 
 Leaving a bracket row undecided costs nothing while the dialect does not use the syntax — `[` carries
 no meaning in ordinary MySQL or Oracle SQL, and Elasticsearch refuses it outright. It costs something
@@ -113,7 +119,7 @@ the `nq'…'` spelling of Oracle's alternate quoting.
 **Closed 2026-08-25:** `SqlGrammar` now carries `doubleSlashComment`, established by live probe on
 Apache Cassandra 5.0.9, ScyllaDB 2026.2.4 and ClickHouse 26.7.1 (a line comment on all three) and
 refused on PostgreSQL 18, MySQL 26.7.0, SQLite, Oracle, SQL Server 2022 and Trino 476. It is undecided
-for elasticsearch and opensearch, and absent with the whole row for druid and libredb (couchbase's was probed on 2026-10-28: not a comment) -
+for elasticsearch and opensearch, and absent with the whole row for libredb (couchbase's was probed on 2026-10-28: not a comment; druid's the same day: a line comment) -
 recorded in the table in `docs/editor/query-optimization.md`.
 
 ### S7. Compound statements on MySQL, Db2 and Trino are still cut at their inner `;`
