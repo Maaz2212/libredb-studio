@@ -10,10 +10,12 @@ import { MCP_EXPOSABLE, SHIPPED_DATABASE_TYPES } from "@/lib/db/compatibility";
 import { readQueryFormsOf } from "@/lib/db/providers/sql/read-query-forms";
 import { DB_UI_CONFIG } from "@/lib/db-ui-config";
 import { mcpClientConfigs } from "@/lib/mcp/client-config";
-import { RUN_READ_QUERY_ENGINES, RUN_READ_QUERY_TYPES } from "@/lib/mcp/tools/run-read-query";
-import { RUN_KUBECTL_READ_ARM, RUN_MONGO_COMMAND_ARM, servingStatementArms } from "@/lib/mcp/tools/statement-arms";
+import { RUN_READ_QUERY_ENGINES, RUN_READ_QUERY_TYPES } from "../helpers/run-read-query";
+import { mcpStatementArm, servingStatementArms } from "@/lib/mcp/tools/statement-arms";
 import type { DatabaseType } from "@/lib/types";
 
+const RUN_KUBECTL_READ_ARM = mcpStatementArm("run_kubectl_read");
+const RUN_MONGO_COMMAND_ARM = mcpStatementArm("run_mongo_command");
 const ROOT = path.resolve(import.meta.dir, "../..");
 const read = (relative: string): string => readFileSync(path.join(ROOT, relative), "utf8");
 const MCP_DOC = read("docs/MCP.md");
@@ -41,6 +43,33 @@ describe("docs/API_DOCS.md documents every MCP route", () => {
 
   test("the MCP section is in the table of contents", () => {
     expect(API_DOCS).toContain("[MCP API](#mcp-api)");
+  });
+});
+
+/**
+ * A statement language declares its MCP tool in its own pack and `statement-arms.ts` names no language, so no doc may
+ * tell a future language to add an arm of its own there.
+ */
+describe("the docs say a language's MCP tool is a facet in its pack", () => {
+  const docs = [
+    "docs/BACKLOG.md",
+    "docs/AGENT.md",
+    "docs/MCP.md",
+    ...new Bun.Glob("docs/providers/*.md").scanSync(ROOT),
+  ];
+
+  test.each(docs)("%s sends no language to an arm of its own in MCP_STATEMENT_ARMS", (doc) => {
+    expect(
+      read(doc)
+        .split("\n")
+        .filter((line) => /own arm in `MCP_STATEMENT_ARMS`/.test(line)),
+    ).toEqual([]);
+  });
+
+  test("docs/BACKLOG.md names the facet where a future language's MCP tool lives", () => {
+    expect(read("docs/BACKLOG.md")).toContain(
+      "its own MCP facet in its language pack (`src/lib/agent/languages/<statement-language>/mcp.ts`, registered in `AGENT_LANGUAGE_MCP_FACETS`)",
+    );
   });
 });
 

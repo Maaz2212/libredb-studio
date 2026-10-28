@@ -1082,7 +1082,7 @@ Kubernetes declares `agentCredential: "token"`, so the connection's `agentPasswo
 That identity's RBAC decides what the agent can see, which is why a token bound to the `view` ClusterRole is the one to give it.
 
 No kubectl variant can auto-execute: a kubectl answer is never run in the editor, so the run route refuses `autoExecute` on Kubernetes, the rail hides the setting, and the run's rules never mention it.
-MCP clients read a Kubernetes connection with `run_kubectl_read`, the kubectl language's arm in `MCP_STATEMENT_ARMS` (`src/lib/mcp/tools/statement-arms.ts`): it takes the same `statement`, read and admitted by the same adapter, and runs it under the same `agent-read-only` profile and `queryReadOnly` as a run's read, so its answer carries the same machine redaction, while `inspect_schema` lists no Kubernetes object, because no Kubernetes kind is a relation ([`docs/MCP.md`](./MCP.md)).
+MCP clients read a Kubernetes connection with `run_kubectl_read`, the tool the kubectl language declares in its MCP facet (`src/lib/agent/languages/kubectl/mcp.ts`), built into `MCP_STATEMENT_ARMS` by `src/lib/mcp/tools/statement-arms.ts`: it takes the same `statement`, read and admitted by the same adapter, and runs it under the same `agent-read-only` profile and `queryReadOnly` as a run's read, so its answer carries the same machine redaction, while `inspect_schema` lists no Kubernetes object, because no Kubernetes kind is a relation ([`docs/MCP.md`](./MCP.md)).
 
 ### On a MongoDB connection
 
@@ -1100,7 +1100,7 @@ A narrowed run keeps `compose_report` and the extras below.
 Every statement workflow is offered the read-class four whole, because the engine answers each of them: a cluster has neither a catalog nor a plan, and a MongoDB database has both.
 `compare_plans` is the one tool left out (B119): a comparison's whole value is the structural access reading of `summarisePlan` (`src/lib/agent/plan-summary.ts`), which reads a MongoDB plan as `unknown`, so a comparison would state that two plans differ in a way nobody has read; an optimization run answers from one inspected plan instead, under `agent-query-optimization-mongo.1`: an index recommended because of that plan, or a report citing a plan that already reaches its documents through an index and recommending nothing, and an index the collection already has is refused (`INDEX_ALREADY_EXISTS`).
 Auto-execute is not offered on any mongo variant (B118): its gate has no reading of a MongoDB plan to weigh and the replay of a MongoDB answer is not verified, so the run route refuses `autoExecute` on a MongoDB connection, the rail raises no consent step, the run's rules never mention it, and a MongoDB answer is never run in the editor.
-MCP clients read a MongoDB connection with `run_mongo_command`, the mongo language's arm in `MCP_STATEMENT_ARMS` (`src/lib/mcp/tools/statement-arms.ts`): it takes the same `command` envelope, read and admitted by the same adapter, and runs it under the same `agent-read-only` profile and `queryReadOnly` as a run's read, while `run_read_query`, which takes SQL, refuses a MongoDB connection before anything is acquired and names that tool ([`docs/MCP.md`](./MCP.md)).
+MCP clients read a MongoDB connection with `run_mongo_command`, the tool the mongo language declares in its MCP facet (`src/lib/agent/languages/mongo/mcp.ts`), built into `MCP_STATEMENT_ARMS` by `src/lib/mcp/tools/statement-arms.ts`: it takes the same `command` envelope, read and admitted by the same adapter, and runs it under the same `agent-read-only` profile and `queryReadOnly` as a run's read, while `run_read_query`, which takes SQL, refuses a MongoDB connection before anything is acquired and names that tool ([`docs/MCP.md`](./MCP.md)).
 
 **A run that sends commands proves the connection's user before its first model turn.**
 Its grounding takes the provider reading under `agent-read-only`, so the open checks the server first: `buildInfo` must be MongoDB's, `connectionStatus` must list only the read role's actions on collections of the bound database, and the server must refuse a delete of an `_id` no document holds, a write that changes nothing on any outcome.
@@ -2798,13 +2798,14 @@ Agent mode reads statements in three statement languages, `sql`, `kubectl` and `
 The agent imports the database layer, and the database layer never imports the agent.
 The core (`investigation.ts`, `tools.ts` and the modules beside them) names no statement language a pack owns and no engine, which the guard at the end of this section holds.
 
-**The interface.** `AgentLanguagePack` in `languages/pack.ts` has three facets, one per tier:
+**The interface.** `AgentLanguagePack` in `languages/pack.ts` has three facets, one per tier, and each language declares a fourth, its MCP facet, beside them:
 
 | Facet | Tier rule | What it holds | Read through |
 | --- | --- | --- | --- |
 | `client` | Browser-safe: it reaches no server module and no `node:` builtin | the copy, the workflow variants, the plan-estimate operation and the posture sentences | `languageClientPack` |
 | `server` | Below `tools.ts`: it never reaches the execution tier | the adapter, the tool overrides and base definitions, the recommendation card, grounding, the tool rules and the shortfall notices | `languageServerPack` |
 | `execution` | Above `tools.ts`: only the run loop reads it | the tool arms and the evidence tools | `agentLanguagePack` |
+| `mcp` | Data only: it never reaches the execution tier or `src/lib/mcp/`, which reads it | the MCP statement tool's name and title, the statement argument's input field, the `database` key and paging mode, `holdsNoTables`, the description, and the words its refusals and cut results use | `AGENT_LANGUAGE_MCP_FACETS` in `languages/mcp.ts` |
 
 **The three member kinds.**
 
@@ -2860,11 +2861,16 @@ Every member an overlay cannot override stays keyed by the persisted family, so 
 4. Add the `Agent language pack` subsection to `docs/providers/<type-id>.md`, which `tests/unit/lib/agent/engine-docs.test.ts` holds to the overlay row for row.
 5. Run `engine-overlays.test.ts` and `engine-pack-contract.test.ts` under `tests/unit/lib/agent/`, which read the engine list from the manifest, so the new engine joins every case.
 
-**The guard.** `tests/unit/lib/agent/language-boundary.test.ts` reads every core file under `src/lib/agent/` outside `languages/`, and its allowlist holds each finding the core keeps on purpose with an exact count:
+**Where a new statement language's MCP tool lives.** In its own pack, at `languages/<statement-language>/mcp.ts`, registered in `AGENT_LANGUAGE_MCP_FACETS` in `languages/mcp.ts`.
+That registry is total over `AgentStatementLanguageId`, so a new language does not compile until it declares its facet, or `null` while it has no MCP tool.
+`src/lib/mcp/tools/statement-arms.ts` builds every statement tool from the registry and names no language, and the tool names MCP keeps, the audit actions, `list_connections`' `read_tool` and the route's schema map, are derived from it, so the language edits no file under `src/lib/mcp/`.
+The tool serves an engine only once that engine's `MCP_STATEMENT_READ` row in `src/lib/db/compatibility.ts` opens it.
+
+**The guard.** `tests/unit/lib/agent/language-boundary.test.ts` reads every core file under `src/lib/agent/` outside `languages/`, and every file under `src/lib/mcp/`, and its allowlist holds each finding they keep on purpose with an exact count:
 
 - R1: no pack id other than `sql` as a literal, a property or part of an identifier, and no operation, verifier or fingerprint id that starts with one.
 - R2: no import of a module that belongs to one pack, only of the shared entries of `languages/`.
-- R3: the tiers hold: no server module reaches the execution tier, no client pack reaches a server module or a builtin, and no runtime cycle passes through `languages/`.
+- R3: the tiers hold: no server module reaches the execution tier, no client pack reaches a server module or a builtin, no MCP facet reaches the execution tier or `src/lib/mcp/`, and no runtime cycle passes through `languages/`.
 - R4: the allowlist is exact, so it can only shrink.
 - R5: no `sql` literal, no `sql` read off a language-keyed table, no id that starts with `sql`, and an exact count of the references to `DEFAULT_STATEMENT_LANGUAGE` and `CURATED_CALL_LANGUAGE`.
 - R6: every engine overlay is declared `satisfies` its overlay type, so the excess-property check holds it to its family's dialect.
