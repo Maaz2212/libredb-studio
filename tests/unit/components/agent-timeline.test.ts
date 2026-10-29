@@ -233,8 +233,8 @@ describe("foldLedgerEntries", () => {
   /*
     Every reason against the sentence the rail shows for it, total over the reason union, so a reason added to
     `AgentRunFailureReason` does not compile here until its sentence is pinned. The four profile refusals each name
-    their own repair: a user holding too much, a user lacking a privilege, a server that enforces nothing, and a
-    target the profile is not measured against. One sentence for two of them could only ever give one repair.
+    their own repair: a credential holding too much, a credential lacking a privilege, a server that enforces nothing,
+    and a target the profile is not measured against. One sentence for two of them could only ever give one repair.
   */
   const FAILURE_SENTENCE_OF = {
     "model-unavailable": "The model provider is not configured or could not be reached.",
@@ -244,9 +244,9 @@ describe("foldLedgerEntries", () => {
     "agent-credential-unusable":
       "This connection's agent credential cannot be used: check that it has the form its database takes (an agent user and password; an agent token or service-account key alone where the database takes one; an agent user other than the connection's own where it asks for one; none where it takes none), that the password still decrypts under the current secret key, and that no connection string is set beside it.",
     "agent-principal-refused":
-      "The database user this run would execute as holds privileges the read-only boundary cannot contain, so the profile refused it. Connect as a user holding only read privileges.",
+      "The credential this run would execute as, a database user or a token, holds privileges the read-only boundary cannot contain, so the profile refused it. Connect with a credential that holds only read privileges.",
     "agent-principal-underprivileged":
-      "The database user this run would execute as lacks a privilege the read-only path needs, so the profile refused it. Grant it that privilege, or connect as a user that holds it.",
+      "The credential this run would execute as, a database user or a token, lacks a privilege the read-only path needs, so the profile refused it. Grant it that privilege, or connect with a credential that holds it.",
     "server-authorization-off":
       "This database server does not enforce authorization, so no user's read-only boundary holds there and agent mode cannot run. Turn on the server's authorization (on MongoDB, security.authorization) and connect as a read-only user.",
     "profile-target-unsupported":
