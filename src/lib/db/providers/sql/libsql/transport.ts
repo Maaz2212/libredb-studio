@@ -97,6 +97,13 @@ export interface LibSQLExecuteOptions {
   /** Positional parameters, in the order the statement's `?` placeholders appear. */
   params?: unknown[];
   timeoutMs?: number;
+
+  /**
+   * The most bytes the answer may carry. The implementation stops reading at the first chunk that crosses it, closes
+   * the exchange, and throws `LibSQLBodyLimitError`, so an answer larger than the caller can use is never held whole in
+   * memory. Left out, the answer is read whole, as every editor statement is.
+   */
+  maxBodyBytes?: number;
 }
 
 /**
@@ -159,5 +166,39 @@ export class LibSQLTransportError extends Error {
     this.name = "LibSQLTransportError";
     this.status = status;
     this.code = code;
+  }
+}
+
+/**
+ * An answer that ran past `LibSQLExecuteOptions.maxBodyBytes`. A transport error like every other throw out of the seam,
+ * with status 0 because the server named nothing: the client stopped reading. `bytesRead` is what had arrived when it
+ * stopped, so it is past `limit` by at most one chunk.
+ */
+export class LibSQLBodyLimitError extends LibSQLTransportError {
+  constructor(
+    public readonly bytesRead: number,
+    public readonly limit: number,
+  ) {
+    super(`libSQL answered more than ${limit} bytes`, 0);
+    this.name = "LibSQLBodyLimitError";
+    Object.setPrototypeOf(this, LibSQLBodyLimitError.prototype);
+  }
+}
+
+/**
+ * A request its own deadline (`LibSQLExecuteOptions.timeoutMs`) ended before the answer was read whole. Status 0, like
+ * every failure that got no answer, so a caller that does not ask reads it as before; one that does can tell a
+ * statement that ran out of time from a server it could not reach. Hrana has no cancel request of its own; the abort
+ * closes the request, and sqld 0.24.33 stopped the statement then (measured: a recursive count held a core at 100%
+ * until the abort and the server was idle within two seconds of it).
+ */
+export class LibSQLDeadlineError extends LibSQLTransportError {
+  constructor(
+    message: string,
+    public readonly timeoutMs: number,
+  ) {
+    super(message, 0);
+    this.name = "LibSQLDeadlineError";
+    Object.setPrototypeOf(this, LibSQLDeadlineError.prototype);
   }
 }
