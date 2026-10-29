@@ -33,6 +33,18 @@ Access LibreDB Studio via port-forward:
 
 {{- end }}
 
+{{- $openshiftRoute := .Values.openshiftRoute | default dict }}
+{{- if $openshiftRoute.enabled }}
+
+Access LibreDB Studio via the OpenShift Route:
+{{- with $openshiftRoute.host }}
+  https://{{ . }}{{ $.Values.config.basePath | default "" }}
+{{- else }}
+  The router generates the host. Read it with:
+    oc get route --namespace {{ .Release.Namespace }} {{ include "libredb-studio.fullname" . }} -o jsonpath='{.spec.host}'
+{{- end }}
+{{- end }}
+
 Configuration:
   Auth Provider:    {{ .Values.authProvider }}
   Storage Provider: {{ include "libredb-studio.storageProvider" . }}
@@ -78,7 +90,7 @@ Passkey sign-in (docs/PASSKEYS.md): --set config.passkeyOrigin=https://{{ $passk
 {{- end }}
 
 Health check:
-  kubectl --namespace {{ .Release.Namespace }} exec deploy/{{ include "libredb-studio.fullname" . }} -- wget -qO- http://localhost:{{ .Values.service.targetPort }}/api/db/health
+  kubectl --namespace {{ .Release.Namespace }} exec deploy/{{ include "libredb-studio.fullname" . }} -- node -e 'fetch(process.argv[1]).then(async r=>{console.log(await r.text());if(!r.ok)process.exitCode=1})' http://localhost:{{ .Values.service.targetPort }}{{ .Values.config.basePath | default "" }}/api/db/health
 
 IMPORTANT: if every action (including login) starts returning 403 after a `helm upgrade` behind an
 ingress that rewrites the Host header, set ALLOWED_ORIGINS to this deployment's public origin via

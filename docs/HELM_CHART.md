@@ -510,6 +510,22 @@ Two constraints are enforced rather than documented:
 `labels` and `annotations` reserved key names directly under `route` rather than route names. A
 per-route entry wins on a key collision; the chart's own labels win over both.
 
+### OpenShift
+```bash
+helm install libredb libredb/libredb-studio \
+  --set secrets.jwtSecret=$(openssl rand -base64 32) \
+  --set secrets.adminPassword="$ADMIN_PASSWORD" \
+  --set openshiftRoute.enabled=true \
+  --set openshift.trustedCABundle.enabled=true \
+  --set openshift.topology.partOf=libredb \
+  --set openshift.topology.runtime=nodejs
+```
+
+`openshiftRoute.*` renders an OpenShift Route with edge TLS and a 120s router timeout, `openshift.trustedCABundle.enabled` mounts the cluster's injected trusted CA bundle as `NODE_EXTRA_CA_CERTS`, and `openshift.topology.*` adds the console's Topology labels; every one is off by default, and the Route and the trusted CA bundle check that their OpenShift API is served.
+In a Helm install Topology groups the workloads by the Helm release, so `openshift.topology.partOf` shows as an application in the Application selector rather than as a group on the canvas.
+The chart README's "OpenShift" section covers the three exposure mechanisms, the timeout, the GitOps render with `global.compatibility.openshift.apis=force`, and `helm test`.
+A JSON parse error in the query UI after about 30 seconds means the router cut the request: `openshiftRoute.timeout` must exceed the query timeout, and an empty value leaves the router's 30s default in force.
+
 ### External Secrets (Vault / ESO)
 ```bash
 helm install libredb libredb/libredb-studio \
