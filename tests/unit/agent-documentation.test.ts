@@ -476,6 +476,7 @@ const READ_ONLY_PROVIDER_FILES: Readonly<Record<string, string>> = {
   clickhouse: "src/lib/db/providers/sql/clickhouse/index.ts",
   libsql: "src/lib/db/providers/sql/libsql/index.ts",
   influxdb3: "src/lib/db/providers/timeseries/influxdb/sql-provider.ts",
+  elasticsearch: "src/lib/db/providers/sql/search/index.ts",
 };
 
 /**
@@ -584,9 +585,9 @@ describe("every agent-mode engine sentence is the one engine list (#246)", () =>
   const list = namedList(AGENT_EXECUTION_ENGINES.map((type) => getDBConfig(type).label));
   const prose = (relative: string) => read(relative).replace(/\n[ \t]*(?:\*|\/\/|#)?[ \t]*/g, " ");
 
-  test("the derived list is today's ten engines", () => {
+  test("the derived list is today's eleven engines", () => {
     expect(list).toBe(
-      "PostgreSQL, SQLite, DuckDB, SQL Server, MySQL, Kubernetes, MongoDB, ClickHouse, libSQL and InfluxDB 3 (SQL)",
+      "PostgreSQL, SQLite, DuckDB, SQL Server, MySQL, Kubernetes, MongoDB, ClickHouse, libSQL, InfluxDB 3 (SQL) and Elasticsearch",
     );
   });
 
@@ -608,6 +609,38 @@ describe("every agent-mode engine sentence is the one engine list (#246)", () =>
   test("each engine on the list has its read-only provider file, and the map has no other key", () => {
     expect(Object.keys(READ_ONLY_PROVIDER_FILES).sort()).toEqual([...AGENT_EXECUTION_ENGINES].sort());
     for (const file of Object.values(READ_ONLY_PROVIDER_FILES)) expect(existsSync(path.join(ROOT, file))).toBe(true);
+  });
+
+  test("the guide's list of the files that define queryReadOnly names each read-only provider file", () => {
+    const sentence = read("docs/AGENT_GUIDE.md").split("`queryReadOnly` exists on ")[1]?.split(/\.\n/)[0] ?? "";
+    for (const file of Object.values(READ_ONLY_PROVIDER_FILES)) {
+      const [parent, base] = file.split("/").slice(-2);
+      expect(sentence).toContain(base === "index.ts" ? `\`${parent}/index.ts\`` : base);
+    }
+  });
+
+  /**
+   * A sentence that lists the files defining `queryReadOnly` (it names both `postgres.ts` and `sqlite.ts`) names every
+   * read-only provider file, in every README translation and agent page, so a list closed with "and nowhere else"
+   * cannot leave out an engine the same sentence's heading names.
+   */
+  test.each(ENGINE_CLAIM_FILES)(
+    "every list of queryReadOnly's files in %s names each read-only provider file",
+    (file) => {
+      const lists = sentencesOf(read(file)).filter(
+        (sentence) => sentence.includes("`postgres.ts`") && sentence.includes("`sqlite.ts`"),
+      );
+      for (const sentence of lists) {
+        for (const provider of Object.values(READ_ONLY_PROVIDER_FILES)) {
+          const [parent, base] = provider.split("/").slice(-2);
+          expect(sentence).toContain(base === "index.ts" ? `${parent}/index.ts\`` : `${base}\``);
+        }
+      }
+    },
+  );
+
+  test("docs/FEATURES.md no longer says the search providers implement no queryReadOnly", () => {
+    expect(read("docs/FEATURES.md")).not.toContain("The search providers implement no `queryReadOnly`");
   });
 
   /**

@@ -31,7 +31,7 @@ None of it is a GitHub issue.
 - [Drivers and connections](#drivers-and-connections) — D1-D403, U17 · 293
 - [Value interpolation](#value-interpolation) — V1
 - [Row editing](#row-editing) — R1–R3 · 3
-- [Studio UI and query execution](#studio-ui-and-query-execution) — X2-X25, U2-U148 · 134
+- [Studio UI and query execution](#studio-ui-and-query-execution) — X2-X25, U2-U149 · 135
 - [Dependencies](#dependencies) — P1-P12 · 10
 - [Documentation](#documentation) — DOC3-DOC35 · 31
 - [Release pipeline](#release-pipeline) — REL1-REL9 · 9
@@ -40,7 +40,7 @@ None of it is a GitHub issue.
 - [Security Phase 3 deferrals](#security-phase-3-deferrals) — K4-K8 · 5
 - [Security scanner triage](#security-scanner-triage) — SCAN1-SCAN2 · 2
 - [Agent M1 deferrals (#328)](#agent-m1-deferrals-328) — A2–A8 · 5
-- [Agent M2 deferrals (#329)](#agent-m2-deferrals-329) — B2-B143 · 73
+- [Agent M2 deferrals (#329)](#agent-m2-deferrals-329) — B2-B144 · 74
 - [Passkey deferrals (#785)](#passkey-deferrals-785) — PK1-PK9 · 8
 - [MCP server deferrals (#246)](#mcp-server-deferrals-246) — MCP1-MCP4 · 4
 - [Governance follow-ups](#governance-follow-ups) — GOV1-GOV30 · 30
@@ -5953,6 +5953,17 @@ Found on #1849, whose golden capture this is.
 
 **Done when:** each golden holds only the engine's own fields, with the picker and the shared chrome pinned once elsewhere, and each count above derives from the type-id list (`EXTERNAL_DATABASE_TYPES` in `src/lib/db/compatibility.ts` with LibreDB) instead of a literal.
 
+### U149. The Query Safety Check describes an Elasticsearch DELETE as deleting documents, which that engine cannot do
+
+On an Elasticsearch connection, running `DELETE FROM <index>` in the editor opens the Query Safety Check dialog (`src/components/QuerySafetyDialog.tsx`), which tells the user the statement permanently deletes the matching documents.
+The engine's SQL endpoint cannot run it: its grammar has no write or DDL statement, and a `DELETE` sent there is refused with `parsing_exception` before anything runs (`docs/providers/elasticsearch.md`, section 5.6, and its checked-in captures).
+The dialog's reading of the statement is generic SQL: the client check treats any `DELETE` as destructive, and the analysis route `src/app/api/ai/query-safety/route.ts` asks the model about the statement with the database type named but no word on what that engine's grammar accepts.
+So the warning describes an effect that cannot happen, and the user is asked to confirm a deletion the engine would refuse.
+Seen 2026-10-29 in a browser pass over the Elasticsearch agent work.
+Any engine whose SQL surface is query-only would read the same way; that was reasoned from the code, not measured.
+
+**Done when:** on an engine whose SQL grammar holds no write statement, the dialog either does not open for a write or says the engine will refuse it, never that rows or documents will be deleted; the fact is read from a per-engine contract row or capability, not a type-id branch; and a test pins the Elasticsearch `DELETE` case.
+
 ## Dependencies
 
 ### P1. The desktop shell's `glib` advisory has no reachable fix while Tauri v2 targets GTK 3
@@ -8186,6 +8197,18 @@ The statistics reading and the grounding capture are unsupported too: the engine
 Found 2026-10-29 with agent execution on InfluxDB 3.
 
 **Done when:** the InfluxDB 3 overlay gains a profile composition bounded in time and measured on the engine, or its SQL variants stop offering `profile_table` through a requirement, and a DataFusion explain strategy with an `agentReading` verified against the engine's plans exists, with tests for both; cited in `docs/AGENT.md`.
+
+### B144. Elasticsearch composes no estimating plan, profile, statistics reading or grounding capture
+
+Elasticsearch's engine overlay (`src/lib/agent/languages/sql/engines/elasticsearch.ts`) supplies the catalog read alone: the column kind is the `SYS COLUMNS` command, declared a command and mapped into column rows, and the relation, index and statistics kinds are refused, since the engine keeps no foreign key, no index object apart from the table and no row estimate.
+The other four dialect members are `"unsupported"`: the estimating plan, the profile composition, the statistics reading and the grounding capture.
+The engine's `EXPLAIN` answers its own plan text, which no explain strategy reads (`supportsExplain: false`), and a table profile would be an aggregate over a whole index, never measured.
+So investigation, database assessment and data analysis open on Elasticsearch, where `inspect_plan` and `profile_table` answer `UNSUPPORTED_DIALECT` and an answer is never auto-executed; the `sql-composers` requirement holds query optimization out; plan mode drafts there and grounds under the operations profile.
+Kept so that the engine joined on the members measured on it, and nothing composed from another engine's rule.
+
+Found 2026-10-29 with agent execution on Elasticsearch.
+
+**Done when:** the Elasticsearch overlay gains an estimating plan measured on the engine and an explain strategy with an `agentReading` verified against its plans, so query optimization opens there, and a profile composition measured on it, or a recorded decision that it keeps none, with tests for each; cited in `docs/AGENT.md`.
 
 ## Passkey deferrals (#785)
 
