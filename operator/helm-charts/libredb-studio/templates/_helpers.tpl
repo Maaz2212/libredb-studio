@@ -775,3 +775,237 @@ Studio would refuse to start with fails the render instead, naming the value to 
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{/*
+Whether Studio signs people in with their OpenShift account (authProvider: openshift, trimmed and
+lower-cased as the app reads NEXT_PUBLIC_AUTH_PROVIDER). Every openshift-mode object and variable
+gates on it.
+*/}}
+{{- define "libredb-studio.openshiftSignIn" -}}
+{{- if eq (.Values.authProvider | toString | trim | lower) "openshift" }}
+{{- true }}
+{{- end }}
+{{- end }}
+
+{{/*
+Where openshift mode mounts its projected volume: the OAuth client token is oauth-client-token
+(OPENSHIFT_OAUTH_TOKEN_FILE) and the cluster's CA is ca.crt (OPENSHIFT_API_CA_FILE).
+*/}}
+{{- define "libredb-studio.openshiftSignInDir" -}}
+/var/run/secrets/libredb/openshift
+{{- end }}
+
+{{/*
+The audience of the projected token Studio sends to the OAuth server as its client secret. Fixed,
+not a value: the one requirement is that it is not the API server's audience, so the token can do
+nothing at the API server.
+*/}}
+{{- define "libredb-studio.openshiftOAuthAudience" -}}
+libredb-studio-oauth-client
+{{- end }}
+
+{{/*
+The OAuth client id of a ServiceAccount client, system:serviceaccount:<namespace>:<account>. The
+chart annotates the account with the redirect it accepts, so it must be an account the chart
+creates, and never the namespace's default one, which every other pod there runs as.
+*/}}
+{{- define "libredb-studio.openshiftClientId" -}}
+{{- if not .Values.serviceAccount.create }}
+{{- fail "authProvider=openshift requires serviceAccount.create=true: Studio's ServiceAccount is the OAuth client, and the chart can annotate only an account it creates" }}
+{{- end }}
+{{- $account := include "libredb-studio.serviceAccountName" . }}
+{{- if eq $account "default" }}
+{{- fail "authProvider=openshift refuses serviceAccount.name=default: the namespace's default ServiceAccount, which every other pod there runs as, would become the OAuth client; name an account of Studio's own or leave serviceAccount.name empty" }}
+{{- end }}
+{{- printf "system:serviceaccount:%s:%s" .Release.Namespace $account }}
+{{- end }}
+
+{{/*
+Whether the OLM operator renders this release (operator.managed, which only operator/watches.yaml
+sets). Read with dig over a defaulted dict, so a --reuse-values upgrade from a chart without the
+block renders as a Helm install, and compared as text, so only true counts.
+*/}}
+{{- define "libredb-studio.operatorManaged" -}}
+{{- if eq (dig "managed" false (.Values.operator | default dict) | toString) "true" }}
+{{- true }}
+{{- end }}
+{{- end }}
+
+{{/*
+Whether this release may render cross-namespace and cluster-scoped objects (O14): always for a Helm
+install, and under operator.managed only for the release in operator.clusterStudioNamespace, the
+namespace a cluster admin named in the operator's Subscription. Any namespace editor may create a
+LibreDBStudio and the operator reconciles it cluster-wide, so without this an editor would have the
+operator create Roles in other namespaces or cluster-scoped objects.
+*/}}
+{{- define "libredb-studio.clusterStudioNamespaceOK" -}}
+{{- if not (include "libredb-studio.operatorManaged" .) }}
+{{- true }}
+{{- else }}
+{{- $namespace := dig "clusterStudioNamespace" "" (.Values.operator | default dict) | toString | trim }}
+{{- if and $namespace (eq $namespace .Release.Namespace) }}
+{{- true }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Fails the render, naming operator.clusterStudioNamespace, when clusterStudioNamespaceOK does not
+hold. Called as include "libredb-studio.clusterStudioNamespaceGuard" (dict "ctx" $ "what" "<the
+object>").
+*/}}
+{{- define "libredb-studio.clusterStudioNamespaceGuard" -}}
+{{- if not (include "libredb-studio.clusterStudioNamespaceOK" .ctx) }}
+{{- $namespace := dig "clusterStudioNamespace" "" (.ctx.Values.operator | default dict) | toString | trim }}
+{{- fail (printf "operator.managed is set and %s: the operator renders cross-namespace and cluster-scoped objects only for the LibreDBStudio in the namespace operator.clusterStudioNamespace names (LIBREDB_CLUSTER_STUDIO_NAMESPACE in the operator's Subscription), which is %s, not this release's namespace %s" .what (ternary (printf "%q" $namespace) "unset" (ne $namespace "")) .ctx.Release.Namespace) }}
+{{- end }}
+{{- end }}
+
+{{/*
+The openshift-mode render guards. Each mirrors a refusal of Studio's openshift preflight or a
+constraint of this mode, so a values set Studio would refuse to start with fails the render
+instead, naming the value to fix. Included from deployment.yaml.
+*/}}
+{{- define "libredb-studio.openshiftModeGuards" -}}
+{{- if include "libredb-studio.openshiftSignIn" . }}
+{{- $route := .Values.openshiftRoute | default dict }}
+{{- if not (get $route "enabled") }}
+{{- fail "authProvider=openshift requires openshiftRoute.enabled=true: the ServiceAccount's redirect reference names the Route, so the OAuth server accepts no callback without it" }}
+{{- end }}
+{{- if not (get $route "host") }}
+{{- fail "authProvider=openshift requires openshiftRoute.host: OPENSHIFT_PUBLIC_URL and the ConsoleLink need the public host at install time, so set the host the router serves, such as studio-<namespace>.apps.<cluster domain>" }}
+{{- end }}
+{{- $_ := include "libredb-studio.openshiftClientId" . }}
+{{- $account := include "libredb-studio.serviceAccountName" . }}
+{{- if and (include "libredb-studio.discoveryEnabled" .) (eq $account (include "libredb-studio.discoveryName" .)) }}
+{{- fail (printf "authProvider=openshift refuses serviceAccount.name=%s: that is the discovery exporter's account, which may read Secrets in the discovered namespaces, and Studio's own process never holds a token that can read a database Secret" $account) }}
+{{- end }}
+{{- /* The OAuth server accepts every redirect any oauth-redirect annotation of the account names, so
+       one more reference or URI would let it send the code past Studio's callback. The chart's own
+       two keys may still collide: serviceaccount.yaml lets the chart's value win. */}}
+{{- range $key, $_ := .Values.serviceAccount.annotations | default dict }}
+{{- if and (hasPrefix "serviceaccounts.openshift.io/oauth-redirect" $key) (not (has $key (list "serviceaccounts.openshift.io/oauth-redirectreference.first" "serviceaccounts.openshift.io/oauth-redirecturi.first"))) }}
+{{- fail (printf "authProvider=openshift refuses the serviceAccount.annotations entry %s: the chart registers Studio's one callback itself, and another redirect annotation would let the OAuth server send the code elsewhere, so remove it" $key) }}
+{{- end }}
+{{- end }}
+{{- if include "libredb-studio.operatorManaged" . }}
+{{- range .Values.extraEnv }}
+{{- if hasPrefix "KUBERNETES_ACCESS_REVIEW_ADMIN_" (.name | default "" | toString) }}
+{{- fail (printf "authProvider=openshift with operator.managed refuses extraEnv entry %s: under the operator a Studio admin is whoever may update this LibreDBStudio, and the resource may not move that target" .name) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if .Values.serviceAccount.automountServiceAccountToken }}
+{{- fail "authProvider=openshift refuses serviceAccount.automountServiceAccountToken=true: Studio's process holds only the OAuth client token, whose audience the API server rejects, and reviews every request with the signed-in user's own token; leave it false" }}
+{{- end }}
+{{- if gt (int .Values.replicaCount) 1 }}
+{{- fail "authProvider=openshift requires replicaCount=1: the OpenShift tokens of signed-in users, the review cache and the export cache live in one process" }}
+{{- end }}
+{{- if .Values.autoscaling.enabled }}
+{{- fail "authProvider=openshift refuses autoscaling.enabled: the OpenShift tokens of signed-in users, the review cache and the export cache live in one process, so leave it false" }}
+{{- end }}
+{{- if .Values.config.oidcRoleClaim }}
+{{- fail "authProvider=openshift refuses config.oidcRoleClaim: a Studio admin is whoever may update Studio's Deployment, or the LibreDBStudio resource under the operator, and no claim may grant it; leave it empty" }}
+{{- end }}
+{{- if get (.Values.mcp | default dict) "enabled" }}
+{{- fail "authProvider=openshift refuses mcp.enabled: this version does not run MCP with openshift sign-in" }}
+{{- end }}
+{{- if eq (get (.Values.agent | default dict) "enabled" | toString) "true" }}
+{{- fail "authProvider=openshift refuses agent.enabled=true: this version does not run the agent with openshift sign-in; leave agent.enabled unset or set it to false" }}
+{{- end }}
+{{- $review := .Values.accessReview | default dict }}
+{{- if get $review "enabled" }}
+{{- fail "authProvider=openshift refuses accessReview.enabled: openshift sign-in reviews every request with the signed-in user's own token, never Studio's ServiceAccount; leave it false" }}
+{{- end }}
+{{- $reviewCache := get $review "cacheSeconds" }}
+{{- if and (not (kindIs "invalid" $reviewCache)) (ne (toString $reviewCache) "") }}
+{{- fail "authProvider=openshift refuses accessReview.cacheSeconds, a setting of the ServiceAccount review it does not run: set openshift.signIn.reviewCacheSeconds instead" }}
+{{- end }}
+{{- if trim (get $review "signIn" | default "" | toString) }}
+{{- fail "authProvider=openshift refuses accessReview.signIn, a setting of the ServiceAccount review it does not run: set openshift.signIn.review instead" }}
+{{- end }}
+{{- if .Values.secrets.adminPassword }}
+{{- fail "authProvider=openshift refuses secrets.adminPassword: everyone signs in with an OpenShift account, and Studio refuses to start with ADMIN_PASSWORD set" }}
+{{- end }}
+{{- if .Values.secrets.userPassword }}
+{{- fail "authProvider=openshift refuses secrets.userPassword: everyone signs in with an OpenShift account, and Studio refuses to start with USER_PASSWORD set" }}
+{{- end }}
+{{- if include "libredb-studio.governanceEnabled" . }}
+{{- fail "authProvider=openshift refuses governance.enabled: governance signs people in through an OIDC identity provider; switch one of the two off" }}
+{{- end }}
+{{- $dir := include "libredb-studio.openshiftSignInDir" . }}
+{{- range .Values.extraVolumes }}
+{{- if eq (.name | default "" | toString) "openshift-oauth" }}
+{{- fail "authProvider=openshift refuses the extraVolumes entry openshift-oauth: the chart renders that volume itself, so remove the hand-wired entry (and its extraVolumeMounts, extraEnv and serviceAccount.annotations)" }}
+{{- end }}
+{{- end }}
+{{- range .Values.extraVolumeMounts }}
+{{- if eq (.mountPath | default "" | toString | trimSuffix "/") $dir }}
+{{- fail (printf "authProvider=openshift refuses the extraVolumeMounts entry %s at %s: the chart mounts the OAuth client token and the cluster CA there itself, so remove the hand-wired entry" (.name | default "" | toString) $dir) }}
+{{- end }}
+{{- end }}
+{{- /* Release 1.1.0 and earlier have no openshift sign-in and run password sign-in under it, so a
+       semver tag at or below 1.1.0 fails; a tag that is not a semver (latest, a branch, a digest)
+       cannot be compared and is accepted. A pre-release or build of 1.1.0 counts as 1.1.0. */}}
+{{- $tag := default .Chart.AppVersion .Values.image.tag | toString }}
+{{- if regexMatch `^v?[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]*)?$` $tag }}
+{{- if semverCompare "<=1.1.0" (regexReplaceAll "[-+].*$" (trimPrefix "v" $tag) "") }}
+{{- fail (printf "authProvider=openshift needs an application image after 1.1.0, and image.tag is %s: release 1.1.0 and earlier have no openshift sign-in and would sign people in with a generated password; set image.tag to a later release" $tag) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Every mode guard and mode object keys on authProvider, but the app reads its sign-in mode from
+NEXT_PUBLIC_AUTH_PROVIDER, which the ConfigMap writes from authProvider and an extraEnv entry of the
+same name overrides. So an extraEnv NEXT_PUBLIC_AUTH_PROVIDER must name the same mode (trimmed and
+lower-cased, as the app reads it), and the two variables only openshift sign-in reads are refused in
+every other mode: the hand wiring of the first verify windows (authProvider local and openshift in
+extraEnv) would otherwise run openshift sign-in with none of the mode's guards, egress policy or
+custom-connection default. Every mode, so included from deployment.yaml before the mode guards. An
+extraEnvFrom source carrying the name is a blind spot, as in effectiveBindAddress.
+*/}}
+{{- define "libredb-studio.authProviderGuard" -}}
+{{- $provider := .Values.authProvider | toString | trim | lower }}
+{{- range .Values.extraEnv }}
+{{- $name := .name | default "" | toString }}
+{{- if and (eq $name "NEXT_PUBLIC_AUTH_PROVIDER") (ne (.value | default "" | toString | trim | lower) $provider) }}
+{{- fail (printf "extraEnv entry NEXT_PUBLIC_AUTH_PROVIDER must name the same sign-in mode as authProvider (%q): set the mode in authProvider, which every mode guard and object keys on, and remove the extraEnv entry" $provider) }}
+{{- end }}
+{{- if and (has $name (list "OPENSHIFT_OAUTH_CLIENT_ID" "OPENSHIFT_OAUTH_TOKEN_FILE")) (ne $provider "openshift") }}
+{{- fail (printf "extraEnv entry %s is read only by openshift sign-in, and authProvider is %q: set authProvider=openshift, which writes it, and remove the hand-wired extraEnv entries" $name $provider) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Kubernetes discovery on OpenShift (config.openshift.io/v1 served, or global.compatibility.openshift.apis=force)
+needs openshift or local sign-in: with oidc the review would ask about the identity provider's subject,
+which the cluster's RBAC does not know. Every mode, so included from deployment.yaml beside the
+openshift-mode guards. The same values on another cluster, the Rancher path, still render.
+*/}}
+{{- define "libredb-studio.discoveryOnOpenShiftGuard" -}}
+{{- if and (include "libredb-studio.discoveryEnabled" .) (include "libredb-studio.openshiftApiServed" (dict "ctx" . "api" "config.openshift.io/v1")) }}
+{{- if not (has (.Values.authProvider | toString | trim | lower) (list "openshift" "local")) }}
+{{- fail (printf "discovery.kubernetes.enabled on OpenShift requires authProvider=openshift or local, not %q: the review would ask the cluster about the identity provider's subject, which its RBAC does not know" (.Values.authProvider | toString)) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Whether the NetworkPolicy renders: networkPolicy.enabled true always, false never, and unset (null,
+"" or absent, as Helm 4.2 drops a null default) only in openshift sign-in mode with Kubernetes
+discovery on, where it is the network control that holds even against a forged Service in a
+discovered namespace.
+*/}}
+{{- define "libredb-studio.networkPolicyEnabled" -}}
+{{- $enabled := get (.Values.networkPolicy | default dict) "enabled" }}
+{{- if or (kindIs "invalid" $enabled) (eq (toString $enabled) "") }}
+{{- if and (include "libredb-studio.openshiftSignIn" .) (include "libredb-studio.discoveryEnabled" .) }}
+{{- true }}
+{{- end }}
+{{- else if eq (toString $enabled) "true" }}
+{{- true }}
+{{- end }}
+{{- end }}
