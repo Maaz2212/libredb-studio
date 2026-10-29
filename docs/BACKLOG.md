@@ -31,7 +31,7 @@ None of it is a GitHub issue.
 - [Drivers and connections](#drivers-and-connections) — D1-D405, U17 · 295
 - [Value interpolation](#value-interpolation) — V1
 - [Row editing](#row-editing) — R1–R3 · 3
-- [Studio UI and query execution](#studio-ui-and-query-execution) — X2-X25, U2-U154 · 140
+- [Studio UI and query execution](#studio-ui-and-query-execution) — X2-X25, U2-U158 · 144
 - [Dependencies](#dependencies) — P1-P12 · 10
 - [Documentation](#documentation) — DOC3-DOC35 · 31
 - [Release pipeline](#release-pipeline) — REL1-REL9 · 9
@@ -40,7 +40,7 @@ None of it is a GitHub issue.
 - [Security Phase 3 deferrals](#security-phase-3-deferrals) — K4-K8 · 5
 - [Security scanner triage](#security-scanner-triage) — SCAN1-SCAN2 · 2
 - [Agent M1 deferrals (#328)](#agent-m1-deferrals-328) — A2–A8 · 5
-- [Agent M2 deferrals (#329)](#agent-m2-deferrals-329) — B2-B147 · 77
+- [Agent M2 deferrals (#329)](#agent-m2-deferrals-329) — B2-B148 · 78
 - [Passkey deferrals (#785)](#passkey-deferrals-785) — PK1-PK9 · 8
 - [MCP server deferrals (#246)](#mcp-server-deferrals-246) — MCP1-MCP4 · 4
 - [Governance follow-ups](#governance-follow-ups) — GOV1-GOV30 · 30
@@ -2083,6 +2083,7 @@ The script loads the fixture only when its count query prints exactly `0`, and p
 
 Found 2026-10-03 by the browser pass of #1246.
 Seen again on 2026-10-04, on three fresh volumes in a row (12.1.0.0 twice, 11.5.9.0 once), each printing the skip message over an empty `APP`; run by hand moments after "Setup has completed", the same count query answered `SQL1024N A database connection does not exist`, which the script reads as a loaded fixture.
+Measured 2026-10-29: the count runs in a pipeline (`db2 -x ... | tr -d ' '`), and a db2 command in a pipeline does not share the connection the shell made, so it answers `SQL1024N` whenever it runs; `VALUES 1` piped the same way answers it too, and read through a file it answers 1. `docker/db2-init/02-agent-principal.sh` reads its own count through a file for that reason.
 
 **Done when:** the script tells a failed or warning count query from a non-zero count and fails loudly on the first, a fresh volume gets the fixture, and the check that the fixture loaded is part of the service's own start.
 
@@ -3937,8 +3938,9 @@ Found 2026-10-27 in the review of the change that added MCP `run_kubectl_read` (
 
 ### D392. Db2 cannot cancel a running statement on the server
 
-A Db2 statement is bounded only on Studio's side: a transaction statement past the query timeout closes its session, and `close()` returns only once the statement has ended on the server, so the work runs to its end; `query()` on the shared client is not bounded at all.
+A Db2 statement is bounded only on Studio's side: a transaction statement past the query timeout, and an agent statement past its budget, closes its connection, and `close()` returns only once the statement has ended on the server, so the work runs to its end; `query()` on the shared client is not bounded at all.
 `db2-node` 1.0.24 offers `Client.cancel()` and a `queryTimeout` that cancel the statement on the server through `SYSPROC.WLM_CANCEL_ACTIVITY` on a second session, which needs activity-monitoring privileges and `EXECUTE` on that procedure, so a plain application user may not be able to cancel at all.
+Asked upstream as [gurungabit/db2-node#39](https://github.com/gurungabit/db2-node/issues/39): a `destroy()` that drops the socket without waiting for the running statement, since `close()` takes the same lock as `query()`.
 
 Found 2026-10-28 when Db2 gained transactions and a client-side deadline.
 
@@ -6026,6 +6028,36 @@ A plan-mode run on an Oracle owner connection showed "1/42 stmt" in the rail whi
 Seen 2026-10-29 on Oracle 26ai Free in a browser pass; not checked on other engines.
 
 **Done when:** the plan-mode rail counts only statements of the model's, or labels the capture's reads as reads, and a component test pins the plan-mode count.
+
+### U155. The SQL agent-mode copy says the database enforces a read-only session and that writes are refused without reading the statement
+
+`src/lib/agent/languages/sql/client.ts` tells the user, for every SQL engine, that agent mode runs "in a read-only session the database enforces" and that "writes and DDL are refused by the engine rather than by reading the statement".
+On Db2 there is no read-only session: the boundary is a user holding only read privileges, checked before every statement.
+And Studio does read the statement first: a forced `UPDATE` on Db2 and a `SELECT ... FOR UPDATE` on Oracle were refused before they reached the database (`INPUT_VALIDATION_FAILED`), with the engine as the second line.
+Seen 2026-10-29 in browser passes on Db2 12.1 and Oracle 26ai.
+
+**Done when:** the copy states the boundary each engine actually has, from a per-engine row rather than a type-id branch, says that Studio's own admission refuses a statement first and the engine refuses what passes it, and a component test pins the text for a session-enforced engine and a credential-enforced one.
+
+### U156. The agent rail keeps the previous connection's run and badge after the connection changes
+
+After switching from a Db2 agent connection to an owner connection, the rail header read "on Db2 owner" while the agent connection's last run and its "Reads only" badge stayed on screen; a new run then started while the badge still read "Refused on this connection".
+Seen 2026-10-29 in a browser pass on Db2 12.1.
+
+**Done when:** changing the connection clears or re-labels the rail's run and badge for the new connection, and a component test switches connections and reads the badge.
+
+### U157. An agent run asked to force a write ends answered without saying the write was refused
+
+Asked to run an exact `UPDATE` through its read tool, the agent's statement was refused before it was sent (`INPUT_VALIDATION_FAILED`), yet the run finished `answered` and its report did not say the `UPDATE` was refused.
+Seen 2026-10-29 in a browser pass on Db2 12.1; the Oracle pass the same day had a report that did say so, so it depends on the model's wording.
+
+**Done when:** a run whose only drafted statement was refused either reports that refusal in its answer, held by the run's verifier, or ends in a state other than `answered`, with an agent test that forces the refusal.
+
+### U158. On the dev server the login form submitted as a GET on `127.0.0.1`
+
+Signing in on `http://127.0.0.1:<port>` under `next dev` sent the form as a GET and made no session; the same form on `localhost` signed in.
+Seen once, 2026-10-29, during a browser pass; not measured on a production build, and the cause (a submit before hydration, or a dev origin rule) is not known.
+
+**Done when:** the cause is measured on `next dev` and on a production build, and either the form cannot submit as a GET (a `method="post"` fallback) or the dev origin rule is documented, with an E2E case on `127.0.0.1`.
 
 ## Dependencies
 
@@ -8291,10 +8323,10 @@ The database assessment workflow requires only `sql-catalog` of the dialect, so 
 Its verdict also needs a table profile, which only `profile_table` records, and on an engine whose overlay declares `profileComposition` `"unsupported"` that call answers `UNSUPPORTED_DIALECT`, so the verdict can never be met there.
 Measured 2026-10-29 on OpenSearch 3.8.0 in a browser pass: the run ends with "No table was profiled".
 Elasticsearch has no profile composition either and opens assessment by the same requirement, so it likely ends the same way; that was reasoned from the code, not measured.
-Oracle is in the same position: its overlay supplies the catalog read and declares `profileComposition` `"unsupported"`, so assessment opens there and its verdict can never be met; also reasoned from the code, not measured.
+Oracle and Db2 are in the same position: each overlay supplies the catalog read and declares `profileComposition` `"unsupported"`, so assessment opens there and its verdict can never be met; also reasoned from the code, not measured.
 `docs/AGENT.md` records the choice to leave that need unheld (B111, B140, B143, B144); this entry is the claim that it should change, since a workflow offered on an engine where it cannot pass reads as a broken one.
 
-**Done when:** the database assessment workflow's requirement admits an engine only where its pass check can be met, derived from a dialect capability such as a supplied profile composition rather than a type-id branch, so it is not offered on OpenSearch, Elasticsearch or Oracle until they gain one, with a test that holds the requirement to the pass check; cited in `docs/AGENT.md`.
+**Done when:** the database assessment workflow's requirement admits an engine only where its pass check can be met, derived from a dialect capability such as a supplied profile composition rather than a type-id branch, so it is not offered on OpenSearch, Elasticsearch, Oracle or Db2 until they gain one, with a test that holds the requirement to the pass check; cited in `docs/AGENT.md`.
 
 ### B147. Oracle composes no estimating plan, profile, statistics reading or grounding capture
 
@@ -8307,6 +8339,18 @@ Kept so that the engine joined on the members measured on it, and nothing compos
 Found 2026-10-29 with agent execution on Oracle.
 
 **Done when:** the Oracle overlay gains an estimating plan measured as a READ ONLY user and an explain strategy with an `agentReading` verified against its plans, so query optimization opens there, and a profile composition measured on it, or a recorded decision that it keeps none, with tests for each; cited in `docs/AGENT.md`.
+
+### B148. Db2 composes no estimating plan, profile, statistics reading or grounding capture
+
+Db2's engine overlay (`src/lib/agent/languages/sql/engines/db2.ts`) supplies the catalog read alone, over the `SYSCAT` views.
+The other four dialect members are `"unsupported"`: the estimating plan, the profile composition, the statistics reading and the grounding capture.
+Db2's `EXPLAIN` writes its rows into the explain tables, a write the agent user, which holds `CONNECT` and `SELECT` alone, is refused, so no estimating plan can be composed the way the editor asks for one; `SYSPROC.EXPLAIN_FROM_SECTION` reads a plan from the package cache but writes it into explain tables as well, never measured.
+So investigation, database assessment and data analysis open on Db2, where `inspect_plan` and `profile_table` answer `UNSUPPORTED_DIALECT`, and database assessment, which needs a table profile, opens but cannot pass (B146); the `sql-composers` requirement holds query optimization out; plan mode drafts there and grounds under the operations profile.
+Kept so that the engine joined on the members measured on it, and nothing composed from another engine's rule.
+
+Found 2026-10-29 with agent execution on Db2.
+
+**Done when:** the Db2 overlay gains an estimating plan measured as the least-privilege agent user and an explain strategy with an `agentReading` verified against its plans, so query optimization opens there, and a profile composition measured on it, or a recorded decision that it keeps none, with tests for each; cited in `docs/AGENT.md`.
 
 ## Passkey deferrals (#785)
 
