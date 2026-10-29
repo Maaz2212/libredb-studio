@@ -68,10 +68,8 @@ describe("parseTables and findControlTable", () => {
     expect(table?.rows).toHaveLength(PROGRAMME_CONTROL_IDS.length);
   });
 
-  test("the programme ends with the DuckDB external-access control, the S3 controls, the Kubernetes request allowlist, the RabbitMQ read path, the Apache Spark session and answer bounds, then the governance sealed credentials and query event capture, then the Weaviate console, then the reserved role for Kubernetes-discovered connections", () => {
+  test("the programme ends with the S3 controls, the Kubernetes request allowlist, the RabbitMQ read path, the Apache Spark session and answer bounds, then the governance sealed credentials and query event capture, then the Weaviate console, then OpenShift sign-in's token custody and fail-closed sign-in, then the reserved role for Kubernetes-discovered connections", () => {
     expect(PROGRAMME_CONTROL_IDS.slice(-10)).toEqual([
-      "3.17",
-      "3.18",
       "3.19",
       "3.20",
       "3.21",
@@ -79,9 +77,11 @@ describe("parseTables and findControlTable", () => {
       "3.23",
       "3.24",
       "3.25",
+      "3.26",
+      "3.27",
       "3.28",
     ]);
-    expect(PROGRAMME_CONTROL_IDS).toHaveLength(51);
+    expect(PROGRAMME_CONTROL_IDS).toHaveLength(53);
   });
 
   test("ignores a table that is not the control table", () => {
