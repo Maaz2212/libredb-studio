@@ -84,6 +84,7 @@ import {
 import { actorLabel, executeAuditedOperation } from "@/lib/db/operations/execution";
 import type { ExecutionActor, ExecutionPolicy, PolicyDenyCode, TargetScope } from "@/lib/db/operations/policy";
 import type { OperationRegistry } from "@/lib/db/operations/registry";
+import { admitComposedStatement, type ComposedStatementAdmission } from "@/lib/db/operations/statement-guard";
 import type {
   Container,
   DatabaseObject,
@@ -148,6 +149,7 @@ import { composeCatalogRead, composeEstimatingExplain, composeStatisticsAvailabi
 import {
   type AgentCatalogKind,
   type AgentCatalogRead,
+  type AgentCatalogRows,
   AgentComposedSqlError,
   type AgentEstimatingExplain,
 } from "./composed-sql-primitives";
@@ -588,6 +590,17 @@ export interface AgentOperationRequest {
    * and still refused by the same policy — and the model is still handed no tools.
    */
   readonly grounding?: boolean;
+  /**
+   * The engine's answer turned into the rows the call reads as, before the run keeps it: only the catalog read sets
+   * it, from its engine's row mapper (`AgentCatalogRead.mapRows`). Absent keeps the answer as the engine gave it.
+   */
+  readonly mapRows?: (rows: readonly Record<string, unknown>[]) => AgentCatalogRows;
+  /**
+   * The admission of the one statement the catalog read composed, for an engine whose catalog statement is a command
+   * (`AgentCatalogRead.commandShaped`): the fence admits that statement, word for word, past its read-keyword allowlist.
+   * Only the catalog read sets it, and a statement other than the one it was minted for meets the fence unchanged.
+   */
+  readonly composed?: ComposedStatementAdmission;
 }
 
 // ============================================================================
@@ -1427,13 +1440,36 @@ export async function executeAgentOperation(
     // are the same call however the model worded its way to them.
     fingerprintSource: request.sql,
     fingerprintLanguage: statementFamilyOf(context.statementLanguage),
-    input: { [argument]: request.sql },
+    ...(request.composed === undefined ? {} : { composedByServer: true }),
+    input: { [argument]: request.sql, ...(request.composed === undefined ? {} : { composed: request.composed }) },
     ...(request.label === undefined ? {} : { label: request.label }),
     ...(request.target === undefined ? {} : { target: request.target }),
     ...(request.grounding === undefined ? {} : { grounding: request.grounding }),
-    invoke: (validatedInput, budget, phase) =>
-      runStatement(context, validatedInput, budget, phase, argument, request.mode),
+    invoke: (validatedInput, budget, phase) => {
+      const answered = runStatement(context, validatedInput, budget, phase, argument, request.mode);
+      const { mapRows } = request;
+      return mapRows === undefined ? answered : answered.then((result) => withMappedRows(result, mapRows));
+    },
   });
+}
+
+/** `result` with the rows `mapRows` turns its rows into, and the columns and the count those rows carry. */
+function withMappedRows(
+  result: QueryResult,
+  mapRows: (rows: readonly Record<string, unknown>[]) => AgentCatalogRows,
+): QueryResult {
+  const mapped = mapRows(result.rows);
+  return { ...result, rows: [...mapped.rows], fields: [...mapped.fields], rowCount: mapped.rows.length };
+}
+
+/** The row mapper of `dialect`'s catalog read for one kind, or undefined where its statement answers the rows itself. */
+function catalogRowMapper(
+  dialect: DatabaseConnection["type"],
+  kind: AgentCatalogKind,
+): ((rows: readonly Record<string, unknown>[]) => AgentCatalogRows) | undefined {
+  // Supplied: every caller has already composed this dialect's catalog statement, which refuses an unsupported one.
+  const { mapRows } = engineServerDialect(dialect).catalogRead as AgentCatalogRead;
+  return mapRows === undefined ? undefined : (rows) => mapRows(kind, rows);
 }
 
 /**
@@ -1455,6 +1491,12 @@ export interface AuditedAgentCall {
    * keeps the SQL fingerprint of its own `operations:...` or `objects:...` key, which is no statement in any language.
    */
   readonly fingerprintLanguage?: AgentStatementLanguageId;
+  /**
+   * Set when the call carries the server's admission of the statement it composed. The ledger then keys the call
+   * apart from every model statement, so a model's refused copy of the same text never blocks the server's own read,
+   * and the model's copy stays refused as before.
+   */
+  readonly composedByServer?: true;
   /** The input the DESCRIPTOR validates. `{sql}` or `{statement}` for a statement, the selector for a curated read. */
   readonly input: unknown;
   readonly label?: string;
@@ -1619,6 +1661,14 @@ function otherStatementAdvice(
   return languageServerPack(language).catalogAdvice?.(message, engine);
 }
 
+/**
+ * The key `call` is held under in the run's repair ledger. A statement fingerprint is a bare digest, so the prefix puts
+ * a call carrying the server's admission where no model statement can land.
+ */
+function repairLedgerKey(call: AuditedAgentCall, statementFingerprint: string): string {
+  return call.composedByServer === true ? `composed:${statementFingerprint}` : statementFingerprint;
+}
+
 export async function runAuditedAgentCall(
   context: AgentToolContext,
   call: AuditedAgentCall,
@@ -1628,8 +1678,9 @@ export async function runAuditedAgentCall(
   // set, so no dispatch of a model's tool call ever arrives here with it.
   if (context.mode !== "agent" && call.grounding !== true) return unavailable("MODE_HAS_NO_TOOLS");
 
-  const fingerprint = languageServer(call.fingerprintLanguage ?? CURATED_CALL_LANGUAGE).fingerprint(
-    call.fingerprintSource,
+  const fingerprint = repairLedgerKey(
+    call,
+    languageServer(call.fingerprintLanguage ?? CURATED_CALL_LANGUAGE).fingerprint(call.fingerprintSource),
   );
   const repairAdmission = context.repairs.admit(fingerprint);
   if (!repairAdmission.admitted) return unavailable(repairAdmission.reasonCode);
@@ -2929,10 +2980,14 @@ export async function readStatisticsForGrounding(
       if (read.rows.length > budget.maxResultRows || JSON.stringify(read.rows).length > budget.maxResultBytes) {
         throw new AgentCuratedReadError("READING_OVER_BUDGET");
       }
+      // The estimates are a catalog kind, so they are kept as that kind's mapped rows, mapped once the engine's own
+      // answer is inside the budget, as on the read-only path; the probe is no catalog kind.
+      const mapRows = statement === "estimates" ? catalogRowMapper(dialect, "statistics") : undefined;
+      const kept = mapRows === undefined ? read : withMappedRows(read, mapRows);
       return {
-        rows: read.rows,
-        fields: read.fields,
-        rowCount: read.rows.length,
+        rows: kept.rows,
+        fields: kept.fields,
+        rowCount: kept.rows.length,
         executionTime: (context.clock?.() ?? Date.now()) - startedAtMs,
       };
     },
@@ -2964,12 +3019,19 @@ async function readCatalog(
     return composedSqlOutcome(error);
   }
   // Supplied: `composeCatalogRead` refuses an engine whose catalog read is unsupported.
-  const { declaredSchema, retry } = engineServerDialect(context.connection.type).catalogRead as AgentCatalogRead;
+  const { declaredSchema, retry, commandShaped } = engineServerDialect(context.connection.type)
+    .catalogRead as AgentCatalogRead;
+  const mapRows = catalogRowMapper(context.connection.type, selector.kind ?? "columns");
   const request: AgentOperationRequest = {
     operationId: "sql.query.read",
     sql,
     grounding,
     label: CATALOG_LABELS[selector.kind ?? "columns"],
+    ...(mapRows === undefined ? {} : { mapRows }),
+    // Minted here, right after composing, and only where the overlay declares its catalog statement a command: the
+    // fence then admits this one statement by identity, and a retry's rewrite, which is another statement, meets the
+    // fence unchanged.
+    ...(commandShaped === true ? { composed: admitComposedStatement(sql) } : {}),
     // Declared, so a scope carrying a schema allowlist bounds which schema may be
     // inspected. A raw read cannot declare its schema, which is why an allowlist
     // denies one, and it is not worked around here.
@@ -3013,7 +3075,9 @@ async function readCatalog(
   ) {
     const fallback = retry.rewrite(sql);
     if (fallback !== sql) {
-      outcome = await executeAgentOperation(context, { ...request, sql: fallback });
+      // The rewrite is another statement, so it goes without the admission minted for `sql`, which the fence would
+      // refuse on any other text.
+      outcome = await executeAgentOperation(context, { ...request, sql: fallback, composed: undefined });
     }
   }
   /*
