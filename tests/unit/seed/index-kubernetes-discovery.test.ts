@@ -25,6 +25,9 @@ const ANALYTICS = "k8s-cnpg-d06590026498";
 const BILLING = "k8s-cnpg-37c1c823437f";
 const KUBERNETES_IDS = [ORDERS, ANALYTICS, BILLING];
 
+// The hosts below are those of the default cluster domain.
+delete process.env.SEED_KUBERNETES_DISCOVERY_CLUSTER_DOMAIN;
+
 let kubernetes: KubernetesDiscoveryExportFixture;
 let caprover: DiscoveryExportFixture;
 let scratch = "";
@@ -102,7 +105,7 @@ describe("seed/index with the Kubernetes discovery source", () => {
     const orders = await getSeedConnectionById(ORDERS, ["admin"]);
     expect(orders).toMatchObject({
       name: "team-a/orders (CloudNativePG)",
-      host: "orders-rw.team-a.svc",
+      host: "orders-rw.team-a.svc.cluster.local.",
       port: 5432,
       database: "orders",
       user: "orders",

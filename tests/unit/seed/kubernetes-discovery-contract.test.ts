@@ -7,7 +7,7 @@
  * not list.
  */
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import golden from "../../fixtures/kubernetes-discovery-golden.json";
 import {
   CNPG_CLUSTER,
@@ -18,6 +18,23 @@ import {
 import type { KubernetesDiscoveredDatabase } from "@/lib/seed/kubernetes-discovery-export";
 
 const PASSWORD = "not-a-real-password-orders";
+const CLUSTER_DOMAIN = "SEED_KUBERNETES_DISCOVERY_CLUSTER_DOMAIN";
+const INVALID_CLUSTER_DOMAIN =
+  "SEED_KUBERNETES_DISCOVERY_CLUSTER_DOMAIN is not a DNS name: name the cluster's domain, such as cluster.local, in lowercase letters, digits and hyphens, with dots between its labels and none at either end";
+
+const SVC_CLUSTER_DOMAIN =
+  "SEED_KUBERNETES_DISCOVERY_CLUSTER_DOMAIN starts with the Services' subdomain, which every discovered host already carries: name the cluster domain itself, such as cluster.local";
+
+const savedClusterDomain = process.env[CLUSTER_DOMAIN];
+
+beforeEach(() => {
+  delete process.env[CLUSTER_DOMAIN];
+});
+
+afterEach(() => {
+  if (savedClusterDomain === undefined) delete process.env[CLUSTER_DOMAIN];
+  else process.env[CLUSTER_DOMAIN] = savedClusterDomain;
+});
 
 function database(overrides: Partial<KubernetesDiscoveredDatabase> = {}): KubernetesDiscoveredDatabase {
   return {
@@ -80,7 +97,7 @@ describe("mapKubernetesDatabase", () => {
         id: kubernetesConnectionId("cnpg", "team-a", "orders"),
         name: "team-a/orders (CloudNativePG)",
         type: "postgres",
-        host: "orders-rw.team-a.svc",
+        host: "orders-rw.team-a.svc.cluster.local.",
         port: 5432,
         database: "orders",
         user: "orders",
@@ -113,13 +130,134 @@ describe("mapKubernetesDatabase", () => {
       });
     expect(mapKubernetesDatabase(supplied({ database: "billing", secret: { name: "billing-owner" } }))).toMatchObject({
       ok: true,
-      connection: { database: "billing", port: 5432, user: "billing_owner", host: "billing-db-rw.prod.svc" },
+      connection: {
+        database: "billing",
+        port: 5432,
+        user: "billing_owner",
+        host: "billing-db-rw.prod.svc.cluster.local.",
+      },
       secret: { namespace: "prod", name: "billing-owner" },
     });
     expect(mapKubernetesDatabase(supplied({ secret: { name: "billing-owner" } }))).toMatchObject({
       ok: true,
       connection: { database: "app", port: 5432 },
     });
+  });
+
+  // Discovered hosts are fully qualified names with a trailing dot, so the pod's DNS search path never applies.
+  it("builds the host as the read-write Service's fully qualified name with a trailing dot", () => {
+    const hostOf = () => {
+      const result = mapKubernetesDatabase(database());
+      if (!result.ok) throw new Error(result.reason);
+      return result.connection.host;
+    };
+    expect(hostOf()).toBe("orders-rw.team-a.svc.cluster.local.");
+    // A blank value is the default, as an unset one is.
+    process.env[CLUSTER_DOMAIN] = "  ";
+    expect(hostOf()).toBe("orders-rw.team-a.svc.cluster.local.");
+  });
+
+  it("ends the host in the cluster domain SEED_KUBERNETES_DISCOVERY_CLUSTER_DOMAIN names", () => {
+    for (const value of ["corp.internal", " corp.internal ", "k8s"]) {
+      process.env[CLUSTER_DOMAIN] = value;
+      const result = mapKubernetesDatabase(database());
+      if (!result.ok) throw new Error(result.reason);
+      expect(result.connection.host).toBe(`orders-rw.team-a.svc.${value.trim()}.`);
+    }
+  });
+
+  it("skips every database while SEED_KUBERNETES_DISCOVERY_CLUSTER_DOMAIN is not a DNS name, naming the variable, not the value", () => {
+    const invalid = [
+      "Cluster.Local",
+      "cluster..local",
+      ".cluster.local",
+      "cluster.local.",
+      "-cluster.local",
+      "cluster-.local",
+      "cluster_local",
+      "cluster local",
+      "cluster.local:53",
+      "cluster.local/x",
+      `${"a".repeat(64)}.local`,
+      `${"a.".repeat(126)}ab`,
+    ];
+    for (const value of invalid) {
+      process.env[CLUSTER_DOMAIN] = value;
+      const reason = refusalOf(database());
+      expect(reason).toBe(INVALID_CLUSTER_DOMAIN);
+      expect(reason).not.toContain(value);
+    }
+    // A domain whose first label is svc would put the Services' subdomain in the host twice.
+    for (const value of ["svc", "svc.cluster.local", " svc.corp.internal "]) {
+      process.env[CLUSTER_DOMAIN] = value;
+      const reason = refusalOf(database());
+      expect(reason).toBe(SVC_CLUSTER_DOMAIN);
+      expect(reason).not.toContain(value.trim());
+    }
+  });
+
+  it("skips a database whose resource name is not a single DNS label, naming the field, not the value", () => {
+    const name = "orders.attacker";
+    const reason = refusalOf(
+      database({
+        resource: { metadata: { namespace: "team-a", name } },
+        secret: {
+          name: `${name}-app`,
+          data: { username: "orders", password: PASSWORD, dbname: "orders", port: "5432" },
+        },
+      }),
+    );
+    expect(reason).toBe("the resource's metadata.name is not a single DNS label, which the host's Service name needs");
+    expect(reason).not.toContain(name);
+  });
+
+  it("skips a database whose host has a label over 63 characters, naming the field, not the value", () => {
+    // A 61-character name is a valid label; with the -rw suffix its Service's label is 64 characters.
+    const name = "a".repeat(61);
+    const reason = refusalOf(
+      database({
+        resource: { metadata: { namespace: "team-a", name } },
+        secret: {
+          name: `${name}-app`,
+          data: { username: "orders", password: PASSWORD, dbname: "orders", port: "5432" },
+        },
+      }),
+    );
+    expect(reason).toBe("the host is not a DNS name: one of its labels is not 1 to 63 characters");
+    expect(reason).not.toContain(name);
+  });
+
+  it("lists a database whose host labels are exactly 63 characters", () => {
+    const name = "a".repeat(60);
+    const result = mapKubernetesDatabase(
+      database({
+        resource: { metadata: { namespace: "team-a", name } },
+        secret: {
+          name: `${name}-app`,
+          data: { username: "orders", password: PASSWORD, dbname: "orders", port: "5432" },
+        },
+      }),
+    );
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.connection.host).toBe(`${name}-rw.team-a.svc.cluster.local.`);
+  });
+
+  it("skips a database whose host is over 253 characters, naming the field, not the value", () => {
+    // Without its trailing dot the host is 9 + 1 + 63 + 5 + domain characters: 253 lists, 254 does not.
+    const namespace = "n".repeat(63);
+    const fits = `${"d".repeat(63)}.${"d".repeat(63)}.${"d".repeat(47)}`;
+    const over = `${fits}d`;
+    const hostWith = (domain: string) => {
+      process.env[CLUSTER_DOMAIN] = domain;
+      return mapKubernetesDatabase(database({ resource: { metadata: { namespace, name: "orders" } } }));
+    };
+    const listed = hostWith(fits);
+    if (!listed.ok) throw new Error(listed.reason);
+    expect(listed.connection.host?.length).toBe(254);
+    const refused = hostWith(over);
+    if (refused.ok) throw new Error("listed a host over 253 characters");
+    expect(refused.reason).toBe("the host is not a DNS name: it is over 253 characters");
+    expect(refused.reason).not.toContain(namespace);
   });
 
   it("forces the access fields in code: managed, the admin role, TLS required, no MCP, read-only mode or string", () => {
@@ -200,9 +338,11 @@ describe("mapKubernetesDatabase", () => {
     // The group shows the namespace whole, and the id is the namespace's and the name's, whatever the name shows.
     expect(long.connection).toMatchObject({ group: namespace, id: kubernetesConnectionId("cnpg", namespace, name) });
 
-    const longest = named(namespace, "d".repeat(253));
+    // The longest name whose Service name is a DNS label, 60 characters and -rw.
+    const longest = named(namespace, "d".repeat(60));
     if (!longest.ok) throw new Error(longest.reason);
-    expect(longest.connection.name).toBe(`…${"d".repeat(111)} (CloudNativePG)`);
+    expect(longest.connection.name).toBe(`…${`${namespace}/${"d".repeat(60)}`.slice(13)} (CloudNativePG)`);
+    expect(longest.connection.name).toHaveLength(128);
 
     // 111 characters of namespace and name fit whole.
     const fits = named(`ns-${"a".repeat(57)}`, "d".repeat(51));
@@ -211,15 +351,19 @@ describe("mapKubernetesDatabase", () => {
     expect(fits.connection.name).toHaveLength(128);
   });
 
-  // The export's schema already refuses a namespace over 63 characters; the seed schema checks the connection again.
+  // The export's schema already refuses an initdb database that is not a string; the seed schema checks the
+  // connection again.
   it("skips a connection the seed schema refuses, naming the field and the issue, never a value", () => {
     const reason = refusalOf(
       database({
-        resource: { metadata: { namespace: "n".repeat(65), name: "orders" } },
-        secret: { name: "orders-app", data: { username: "u", password: PASSWORD, dbname: "x", port: "5432" } },
+        resource: {
+          metadata: { namespace: "team-a", name: "orders" },
+          spec: { bootstrap: { initdb: { database: 42 as unknown as string, secret: { name: "orders-owner" } } } },
+        },
+        secret: { name: "orders-owner", data: { username: "u", password: PASSWORD } },
       }),
     );
-    expect(reason).toBe("the connection is not valid: group (too_big)");
+    expect(reason).toBe("the connection is not valid: database (invalid_type)");
     expect(reason).not.toContain(PASSWORD);
   });
 });
@@ -228,6 +372,13 @@ describe("the golden fixture", () => {
   it("is Studio's own copy", () => {
     expect(golden.provenance).toBe("libredb-studio");
     expect(golden.cases.length).toBeGreaterThan(0);
+  });
+
+  it("names every host as a fully qualified name with a trailing dot", () => {
+    for (const c of golden.cases) {
+      const { namespace, name } = c.resource.metadata;
+      expect(c.connection.host).toBe(`${name}-rw.${namespace}.svc.cluster.local.`);
+    }
   });
 
   it.each(golden.cases.map((c) => [`${c.resource.metadata.namespace}/${c.resource.metadata.name}`, c] as const))(

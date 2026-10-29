@@ -30,6 +30,9 @@ let api: FakeKubernetesApi;
 let exportFile: KubernetesDiscoveryExportFixture;
 const spies: { mockRestore(): void }[] = [];
 
+// The hosts below are those of the default cluster domain.
+delete process.env.SEED_KUBERNETES_DISCOVERY_CLUSTER_DOMAIN;
+
 const { GET } = await import("@/app/api/connections/managed/route");
 const { resolveConnection } = await import("@/lib/seed/resolve-connection");
 const { recordGroups, resetGroupRecords } = await import("@/lib/kubernetes-access/groups");
@@ -109,13 +112,19 @@ describe("Kubernetes-discovered connections under the access review", () => {
 
   test("sends no credential and neither server-only marker to the browser", async () => {
     const [orders] = await listed();
-    expect(orders).toMatchObject({ name: "team-a/orders (CloudNativePG)", host: "orders-rw.team-a.svc" });
+    expect(orders).toMatchObject({
+      name: "team-a/orders (CloudNativePG)",
+      host: "orders-rw.team-a.svc.cluster.local.",
+    });
     for (const field of ["password", "kubernetesSecret", "literal"]) expect(field in orders).toBe(false);
   });
 
   test("opens an allowed id with its credentials, and answers a denied id exactly like an unknown one", async () => {
     const opened = await resolveConnection({ connectionId: `seed:${ORDERS}` }, DEV_A);
-    expect(opened).toMatchObject({ host: "orders-rw.team-a.svc", password: "not-a-real-password-orders" });
+    expect(opened).toMatchObject({
+      host: "orders-rw.team-a.svc.cluster.local.",
+      password: "not-a-real-password-orders",
+    });
 
     const refusals = await Promise.all(
       [ANALYTICS, BILLING, "k8s-cnpg-000000000000"].map(async (id) => {
