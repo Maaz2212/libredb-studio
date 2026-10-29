@@ -41,7 +41,7 @@ import type {
   ProviderExecutionContext,
   ReadOnlyStatementBudget,
 } from "@/lib/db/types";
-import { ElasticsearchProvider, OpenSearchProvider } from "@/lib/db/providers/sql/search";
+import { ElasticsearchProvider } from "@/lib/db/providers/sql/search";
 import { generateTableQuery } from "@/lib/query-generators";
 import { isSourcePartUnavailable } from "@/lib/db/object-kinds";
 import { assertObjectSurface } from "../../helpers/object-surface-conformance";
@@ -3957,9 +3957,8 @@ describe("ElasticsearchProvider.queryReadOnly", () => {
     return caught as Error;
   }
 
-  test("is Elasticsearch's alone: OpenSearch, which shares the module, declares none", () => {
+  test("is declared on the class the factory constructs", () => {
     expect(typeof ElasticsearchProvider.prototype.queryReadOnly).toBe("function");
-    expect((OpenSearchProvider.prototype as DatabaseProvider).queryReadOnly).toBeUndefined();
   });
 
   test("returns the rows of an answer inside the budget, asking for one row past the row budget", async () => {
@@ -3980,6 +3979,15 @@ describe("ElasticsearchProvider.queryReadOnly", () => {
     });
     // The budget's deadline, and it is the client's: the engine has no request field this path sends for one.
     expect(armedDeadlines.at(-1)).toBe(AGENT_BUDGET.statementTimeoutMs);
+  });
+
+  test("reads no result limit before a statement: its pages follow a cursor to the end, never cut", async () => {
+    const provider = await agentProvider();
+    const before = sent.length;
+
+    await provider.queryReadOnly("SELECT id, customer FROM probe_orders", AGENT_BUDGET);
+
+    expect(sent.slice(before).map((request) => request.path)).toEqual([SQL_PATH]);
   });
 
   test("refuses an answer past the row budget, after closing the cursor that answer left open", async () => {
@@ -4087,26 +4095,6 @@ describe("ElasticsearchProvider.queryReadOnly", () => {
 
     expect(error.message).toContain("not connected");
     expect(sent).toHaveLength(0);
-  });
-
-  test("the shared statement path refuses a product whose SQL endpoint is not query-only", async () => {
-    // OpenSearch's grammar holds a DELETE that a cluster setting turns on, so its endpoint is not query-only and the
-    // shared path refuses it by that declaration, never by its type-id, even under the agent profile.
-    const provider = new OpenSearchProvider(makeConnection({ type: "opensearch" }));
-    replyFor = (request) => (request.path === "/_plugins/_sql" ? ok(PROBE_BODY) : defaultReply(request));
-    await provider.connect();
-    Object.assign(provider, { readOnlyProfile: true });
-    const before = sent.length;
-    const shared = (provider as unknown as { readOnlyStatement: ElasticsearchProvider["queryReadOnly"] })
-      .readOnlyStatement;
-
-    const error = await refusal(shared.call(provider, "SELECT 1", AGENT_BUDGET, "execute"));
-
-    expect(error).toBeInstanceOf(RefusedBeforeSendError);
-    expect(error.message).toBe(
-      "OpenSearch SQL is not a query-only endpoint, so the agent read-only profile has no boundary to run on here",
-    );
-    expect(sent.length).toBe(before);
   });
 });
 

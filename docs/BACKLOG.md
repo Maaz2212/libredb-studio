@@ -31,7 +31,7 @@ None of it is a GitHub issue.
 - [Drivers and connections](#drivers-and-connections) — D1-D403, U17 · 293
 - [Value interpolation](#value-interpolation) — V1
 - [Row editing](#row-editing) — R1–R3 · 3
-- [Studio UI and query execution](#studio-ui-and-query-execution) — X2-X25, U2-U149 · 135
+- [Studio UI and query execution](#studio-ui-and-query-execution) — X2-X25, U2-U151 · 137
 - [Dependencies](#dependencies) — P1-P12 · 10
 - [Documentation](#documentation) — DOC3-DOC35 · 31
 - [Release pipeline](#release-pipeline) — REL1-REL9 · 9
@@ -40,7 +40,7 @@ None of it is a GitHub issue.
 - [Security Phase 3 deferrals](#security-phase-3-deferrals) — K4-K8 · 5
 - [Security scanner triage](#security-scanner-triage) — SCAN1-SCAN2 · 2
 - [Agent M1 deferrals (#328)](#agent-m1-deferrals-328) — A2–A8 · 5
-- [Agent M2 deferrals (#329)](#agent-m2-deferrals-329) — B2-B144 · 74
+- [Agent M2 deferrals (#329)](#agent-m2-deferrals-329) — B2-B146 · 76
 - [Passkey deferrals (#785)](#passkey-deferrals-785) — PK1-PK9 · 8
 - [MCP server deferrals (#246)](#mcp-server-deferrals-246) — MCP1-MCP4 · 4
 - [Governance follow-ups](#governance-follow-ups) — GOV1-GOV30 · 30
@@ -5964,6 +5964,26 @@ Any engine whose SQL surface is query-only would read the same way; that was rea
 
 **Done when:** on an engine whose SQL grammar holds no write statement, the dialog either does not open for a write or says the engine will refuse it, never that rows or documents will be deleted; the fact is read from a per-engine contract row or capability, not a type-id branch; and a test pins the Elasticsearch `DELETE` case.
 
+### U150. The OpenSearch editor returns an answer the engine cut at its size limit as if it were whole
+
+OpenSearch's SQL plugin answers at most `plugins.query.size_limit` rows, 10,000 by default, and cuts the rest with no sign of the cut.
+Measured on 3.8.0 with the limit at 1,000: a 1,500-group aggregation answers 1,000 rows and no cursor.
+The agent path reads the limit before every statement and refuses an answer that reaches it (`docs/providers/opensearch.md`, "The statement path").
+The editor's `query()` in `src/lib/db/providers/sql/search/index.ts` does not, so the result grid shows the cut answer as complete.
+Seen 2026-10-29 in the live runs of the OpenSearch agent work.
+
+**Done when:** an editor answer that reaches the engine's size limit is either refused or shown with a notice that the engine may have cut it, the limit is read through the same transport call the agent path uses, and a test pins the 1,000-row cut.
+
+### U151. Plan mode on a role without the catalog privileges shows a bare error code
+
+A plan run on an OpenSearch connection whose login lacks the privileges the plan's schema read needs ends in the agent rail with the bare code `CATALOG_READ_REFUSED`.
+No sentence says which read was refused or which privileges are missing, though `docs/providers/opensearch.md` section 5.9 lists the eight the read needs on 3.8.0.
+A user who sees it cannot tell a missing privilege from a fault, and nothing on screen points at the fix.
+Seen 2026-10-29 on OpenSearch 3.8.0 in a browser pass, signed in with a user holding the agent role alone.
+Elasticsearch grounds plan mode through the same object surface, so it likely shows the same; that was reasoned from the code, not measured.
+
+**Done when:** a refused plan-mode catalog read shows a sentence in the rail that names the read that was refused and, where the engine's refusal says so, the privilege it lacked, with the code kept beside it; the sentence comes from the shared refusal path, not a type-id branch; and a component test pins the rail text for a `CATALOG_READ_REFUSED` run.
+
 ## Dependencies
 
 ### P1. The desktop shell's `glib` advisory has no reachable fix while Tauri v2 targets GTK 3
@@ -8209,6 +8229,28 @@ Kept so that the engine joined on the members measured on it, and nothing compos
 Found 2026-10-29 with agent execution on Elasticsearch.
 
 **Done when:** the Elasticsearch overlay gains an estimating plan measured on the engine and an explain strategy with an `agentReading` verified against its plans, so query optimization opens there, and a profile composition measured on it, or a recorded decision that it keeps none, with tests for each; cited in `docs/AGENT.md`.
+
+### B145. OpenSearch composes no estimating plan, profile, statistics reading or grounding capture
+
+OpenSearch's engine overlay (`src/lib/agent/languages/sql/engines/opensearch.ts`) supplies the catalog read alone: the column kind is the `DESCRIBE TABLES` command, declared a command and mapped into column rows, and the relation, index and statistics kinds are refused, since the engine keeps no foreign key, no index object apart from the table and no row estimate.
+The other four dialect members are `"unsupported"`: the estimating plan, the profile composition, the statistics reading and the grounding capture.
+The provider reads no `EXPLAIN` (`supportsExplain: false`), and a table profile would be an aggregate over a whole index, never measured.
+So investigation, database assessment and data analysis open on OpenSearch, where `inspect_plan` and `profile_table` answer `UNSUPPORTED_DIALECT` and an answer is never auto-executed; the `sql-composers` requirement holds query optimization out; plan mode drafts there and grounds under the operations profile.
+Kept so that the engine joined on the members measured on it, and nothing composed from another engine's rule.
+
+Found 2026-10-29 with agent execution on OpenSearch.
+
+**Done when:** the OpenSearch overlay gains an estimating plan measured on the engine and an explain strategy with an `agentReading` verified against its plans, so query optimization opens there, and a profile composition measured on it, or a recorded decision that it keeps none, with tests for each; cited in `docs/AGENT.md`.
+
+### B146. Database assessment opens on an engine with no table profile, where it can never pass
+
+The database assessment workflow requires only `sql-catalog` of the dialect, so it opens on every engine whose overlay supplies a catalog read.
+Its verdict also needs a table profile, which only `profile_table` records, and on an engine whose overlay declares `profileComposition` `"unsupported"` that call answers `UNSUPPORTED_DIALECT`, so the verdict can never be met there.
+Measured 2026-10-29 on OpenSearch 3.8.0 in a browser pass: the run ends with "No table was profiled".
+Elasticsearch has no profile composition either and opens assessment by the same requirement, so it likely ends the same way; that was reasoned from the code, not measured.
+`docs/AGENT.md` records the choice to leave that need unheld (B111, B140, B143, B144); this entry is the claim that it should change, since a workflow offered on an engine where it cannot pass reads as a broken one.
+
+**Done when:** the database assessment workflow's requirement admits an engine only where its pass check can be met, derived from a dialect capability such as a supplied profile composition rather than a type-id branch, so it is not offered on OpenSearch or Elasticsearch until they gain one, with a test that holds the requirement to the pass check; cited in `docs/AGENT.md`.
 
 ## Passkey deferrals (#785)
 

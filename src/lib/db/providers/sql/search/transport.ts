@@ -355,6 +355,28 @@ export interface SearchTransport {
   /** The server's own version string, and the product it reports itself as. */
   version(signal?: AbortSignal): Promise<{ version: string; product: string }>;
 
+  /**
+   * The cluster setting that turns the SQL plugin's DELETE on, by name, and its value: true or false, or null when
+   * the server does not recognize the setting at all. Only a product whose SQL grammar holds a DELETE behind a setting
+   * answers; another refuses before any request.
+   */
+  sqlDeleteSetting(signal?: AbortSignal): Promise<{ setting: string; enabled: boolean | null }>;
+
+  /**
+   * Sends one DELETE on a fresh name no index holds and reads the answer: null when it is one of the refusals the
+   * product was measured to answer while its DELETE is off, or the answer itself, as text, when it is anything else
+   * (a deletion, a missing-index fault, an unknown refusal). Only a product whose SQL grammar holds a DELETE behind a
+   * setting answers; another refuses before any request.
+   */
+  unrefusedSqlDelete(signal?: AbortSignal): Promise<string | null>;
+
+  /**
+   * The cluster setting that caps how many rows the SQL plugin answers, by name, and its value: the plugin cuts an
+   * answer at that many rows with no sign of the cut. Only a product that declares such a setting answers; another
+   * refuses before any request.
+   */
+  sqlResultLimit(signal?: AbortSignal): Promise<{ setting: string; rows: number }>;
+
   /** Every index, alias and data stream the credentials can see. */
   indices(signal?: AbortSignal): Promise<SearchIndexInfo[]>;
 

@@ -2387,6 +2387,229 @@
           "message": "no verified profile composition for provider type \"elasticsearch\""
         }
       }
+    },
+    "opensearch": {
+      "catalogRead": {
+        "columns": [
+          {
+            "selector": {},
+            "sql": "DESCRIBE TABLES LIKE %"
+          },
+          {
+            "selector": {
+              "schema": "Sales"
+            },
+            "sql": {
+              "reasonCode": "SELECTOR_UNSUPPORTED_BY_DIALECT",
+              "message": "OpenSearch SQL has no schema to narrow by, so name a table instead"
+            }
+          },
+          {
+            "selector": {
+              "schema": "MAIN"
+            },
+            "sql": {
+              "reasonCode": "SELECTOR_UNSUPPORTED_BY_DIALECT",
+              "message": "OpenSearch SQL has no schema to narrow by, so name a table instead"
+            }
+          },
+          {
+            "selector": {
+              "schema": "public",
+              "table": "orders"
+            },
+            "sql": {
+              "reasonCode": "SELECTOR_UNSUPPORTED_BY_DIALECT",
+              "message": "OpenSearch SQL has no schema to narrow by, so name a table instead"
+            }
+          }
+        ],
+        "relations": [
+          {
+            "selector": {},
+            "sql": {
+              "reasonCode": "SELECTOR_UNSUPPORTED_BY_DIALECT",
+              "message": "OpenSearch keeps no foreign key, so there is no such inventory to read"
+            }
+          },
+          {
+            "selector": {
+              "schema": "Sales"
+            },
+            "sql": {
+              "reasonCode": "SELECTOR_UNSUPPORTED_BY_DIALECT",
+              "message": "OpenSearch keeps no foreign key, so there is no such inventory to read"
+            }
+          },
+          {
+            "selector": {
+              "schema": "MAIN"
+            },
+            "sql": {
+              "reasonCode": "SELECTOR_UNSUPPORTED_BY_DIALECT",
+              "message": "OpenSearch keeps no foreign key, so there is no such inventory to read"
+            }
+          },
+          {
+            "selector": {
+              "schema": "public",
+              "table": "orders"
+            },
+            "sql": {
+              "reasonCode": "SELECTOR_UNSUPPORTED_BY_DIALECT",
+              "message": "OpenSearch keeps no foreign key, so there is no such inventory to read"
+            }
+          }
+        ],
+        "indexes": [
+          {
+            "selector": {},
+            "sql": {
+              "reasonCode": "SELECTOR_UNSUPPORTED_BY_DIALECT",
+              "message": "OpenSearch keeps no index object apart from the table itself, so there is no such inventory to read"
+            }
+          },
+          {
+            "selector": {
+              "schema": "Sales"
+            },
+            "sql": {
+              "reasonCode": "SELECTOR_UNSUPPORTED_BY_DIALECT",
+              "message": "OpenSearch keeps no index object apart from the table itself, so there is no such inventory to read"
+            }
+          },
+          {
+            "selector": {
+              "schema": "MAIN"
+            },
+            "sql": {
+              "reasonCode": "SELECTOR_UNSUPPORTED_BY_DIALECT",
+              "message": "OpenSearch keeps no index object apart from the table itself, so there is no such inventory to read"
+            }
+          },
+          {
+            "selector": {
+              "schema": "public",
+              "table": "orders"
+            },
+            "sql": {
+              "reasonCode": "SELECTOR_UNSUPPORTED_BY_DIALECT",
+              "message": "OpenSearch keeps no index object apart from the table itself, so there is no such inventory to read"
+            }
+          }
+        ],
+        "statistics": [
+          {
+            "selector": {},
+            "sql": {
+              "reasonCode": "SELECTOR_UNSUPPORTED_BY_DIALECT",
+              "message": "OpenSearch keeps no row estimate a catalog command reads, so there is no such inventory to read"
+            }
+          },
+          {
+            "selector": {
+              "schema": "Sales"
+            },
+            "sql": {
+              "reasonCode": "SELECTOR_UNSUPPORTED_BY_DIALECT",
+              "message": "OpenSearch keeps no row estimate a catalog command reads, so there is no such inventory to read"
+            }
+          },
+          {
+            "selector": {
+              "schema": "MAIN"
+            },
+            "sql": {
+              "reasonCode": "SELECTOR_UNSUPPORTED_BY_DIALECT",
+              "message": "OpenSearch keeps no row estimate a catalog command reads, so there is no such inventory to read"
+            }
+          },
+          {
+            "selector": {
+              "schema": "public",
+              "table": "orders"
+            },
+            "sql": {
+              "reasonCode": "SELECTOR_UNSUPPORTED_BY_DIALECT",
+              "message": "OpenSearch keeps no row estimate a catalog command reads, so there is no such inventory to read"
+            }
+          }
+        ]
+      },
+      "estimatingExplain": [
+        {
+          "sql": "SELECT 1",
+          "composed": {
+            "reasonCode": "UNSUPPORTED_DIALECT",
+            "message": "no verified estimating EXPLAIN for provider type \"opensearch\""
+          }
+        },
+        {
+          "sql": "  explain select 1",
+          "composed": {
+            "reasonCode": "UNSUPPORTED_DIALECT",
+            "message": "no verified estimating EXPLAIN for provider type \"opensearch\""
+          }
+        },
+        {
+          "sql": "EXPLAIN QUERY PLAN SELECT 1",
+          "composed": {
+            "reasonCode": "UNSUPPORTED_DIALECT",
+            "message": "no verified estimating EXPLAIN for provider type \"opensearch\""
+          }
+        },
+        {
+          "sql": "EXPLAIN (FORMAT JSON) SELECT 1",
+          "composed": {
+            "reasonCode": "UNSUPPORTED_DIALECT",
+            "message": "no verified estimating EXPLAIN for provider type \"opensearch\""
+          }
+        },
+        {
+          "sql": "EXPLAIN FORMAT=JSON SELECT 1",
+          "composed": {
+            "reasonCode": "UNSUPPORTED_DIALECT",
+            "message": "no verified estimating EXPLAIN for provider type \"opensearch\""
+          }
+        },
+        {
+          "sql": "EXPLAIN ANALYZE SELECT 1",
+          "composed": {
+            "reasonCode": "UNSUPPORTED_DIALECT",
+            "message": "no verified estimating EXPLAIN for provider type \"opensearch\""
+          }
+        },
+        {
+          "sql": "",
+          "composed": {
+            "reasonCode": "INVALID_STATEMENT",
+            "message": "there is no statement to explain"
+          }
+        }
+      ],
+      "statisticsAvailabilityProbe": null,
+      "tableProfile": {
+        "basic": {
+          "reasonCode": "UNSUPPORTED_DIALECT",
+          "message": "no verified profile composition for provider type \"opensearch\""
+        },
+        "distribution": {
+          "reasonCode": "UNSUPPORTED_DIALECT",
+          "message": "no verified profile composition for provider type \"opensearch\""
+        },
+        "pattern": {
+          "reasonCode": "UNSUPPORTED_DIALECT",
+          "message": "no verified profile composition for provider type \"opensearch\""
+        },
+        "noColumns": {
+          "reasonCode": "UNSUPPORTED_DIALECT",
+          "message": "no verified profile composition for provider type \"opensearch\""
+        },
+        "noSegments": {
+          "reasonCode": "UNSUPPORTED_DIALECT",
+          "message": "no verified profile composition for provider type \"opensearch\""
+        }
+      }
     }
   },
   "withoutExtensionOwnershipTest": {
