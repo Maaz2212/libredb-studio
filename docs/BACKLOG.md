@@ -31,7 +31,7 @@ None of it is a GitHub issue.
 - [Drivers and connections](#drivers-and-connections) — D1-D412, U17 · 302
 - [Value interpolation](#value-interpolation) — V1
 - [Row editing](#row-editing) — R1–R3 · 3
-- [Studio UI and query execution](#studio-ui-and-query-execution) — X2-X25, U2-U161 · 147
+- [Studio UI and query execution](#studio-ui-and-query-execution) — X2-X25, U2-U163 · 149
 - [Dependencies](#dependencies) — P1-P12 · 10
 - [Documentation](#documentation) — DOC3-DOC35 · 31
 - [Release pipeline](#release-pipeline) — REL1-REL9 · 9
@@ -40,7 +40,7 @@ None of it is a GitHub issue.
 - [Security Phase 3 deferrals](#security-phase-3-deferrals) — K4-K8 · 5
 - [Security scanner triage](#security-scanner-triage) — SCAN1-SCAN2 · 2
 - [Agent M1 deferrals (#328)](#agent-m1-deferrals-328) — A2–A8 · 5
-- [Agent M2 deferrals (#329)](#agent-m2-deferrals-329) — B2-B151 · 81
+- [Agent M2 deferrals (#329)](#agent-m2-deferrals-329) — B2-B152 · 82
 - [Passkey deferrals (#785)](#passkey-deferrals-785) — PK1-PK9 · 8
 - [MCP server deferrals (#246)](#mcp-server-deferrals-246) — MCP1-MCP4 · 4
 - [Governance follow-ups](#governance-follow-ups) — GOV1-GOV30 · 30
@@ -6141,6 +6141,7 @@ Asked to run an exact `UPDATE` through its read tool, the agent's statement was 
 Seen 2026-10-29 in a browser pass on Db2 12.1; the Oracle pass the same day had a report that did say so, so it depends on the model's wording.
 Seen again 2026-10-30 on Couchbase enterprise-8.0.2, twice: asked to run an exact `DELETE`, `UPDATE`, `UPDATE STATISTICS` and `BEGIN WORK`, each refused before it was sent, both runs finished `answered` with a report about the schema inventory or a row count and no word of the four refusals.
 Seen again 2026-10-30 on Apache Druid 37.0.0, twice: one run asked for an exact `INSERT`, `REPLACE`, `SET engine = 'msq-task'` and an `EXTERN` read drafted only the `EXTERN` read (403), and one asked for the three writes had each refused before it was sent; both finished `answered` with a report on the datasource's columns and no word of the refusals (runs `arun_08f051825d2744adb753bd8cf0f7edaf`, `arun_a074a7f229004afb8cf93537663325ab`).
+Seen again 2026-10-30 on LibreDB in a browser pass: asked to send `put app:version 3.2`, `PUT zeta changed`, `delete zeta` and `DeLeTe user:1`, each refused before the file was opened (`STATEMENT_NOT_ADMITTED`), the run finished `answered` with one claim about the schema inventory and no word of the four refusals (run `arun_f7423cf2546540028744ebef73824e7e`); the next run, asked for five other refused forms, did report each refusal, so it still depends on the model's wording.
 
 **Done when:** a run whose only drafted statement was refused either reports that refusal in its answer, held by the run's verifier, or ends in a state other than `answered`, with an agent test that forces the refusal.
 
@@ -6177,6 +6178,24 @@ The sidebar beside it said "Datasources 1".
 Seen 2026-10-30 on Apache Druid 37.0.0 in a browser pass; not checked on other engines whose schema lists system tables.
 
 **Done when:** the rail's count names only the objects of the noun's kind, or names the system tables as such, from the snapshot's object kinds rather than a type-id branch, with a timeline test on a capture that mixes datasources and system tables.
+
+### U162. The workflow picker offers Optimize and Assess on LibreDB, and the refusal names only the operations workflow as what runs
+
+The agent rail's Advanced picker lists all five workflows on every connection, so on LibreDB it offers Optimize and Assess, which the `libredbkv` family does not offer (`docs/providers/libredb.md` section 15.6).
+Choosing Optimize and pressing Start is refused (400 on `/api/agent/runs`) with `NO_VARIANT_SENTENCE` in `src/lib/agent/agent-manifest.ts`: "Agent mode does not offer this workflow on this engine. The operations workflow runs here, and plan mode drafts here."
+On LibreDB that sentence is incomplete: investigation and data analysis run there too, so the user reads operations as the only way forward.
+The sentence predates a family that offers some read workflows and lacks others; `libredbkv` is the first.
+Seen 2026-10-30 on LibreDB in a browser pass.
+
+**Done when:** the refusal names the workflows the connection's statement language does offer, read from `AGENT_WORKFLOW_VARIANTS` rather than fixed text, the picker marks or hides a workflow that language has no variant for, and a test pins the sentence for `libredbkv`.
+
+### U163. A refused run start announces the previous conversation as ended by a page reload
+
+When a run start is refused (the POST to `/api/agent/runs` answers 400), the rail says "The conversation this browser was in (1 question, arun_...) ended when the page reloaded. Your next question starts a new one." although no page reloaded.
+`interrupted` in `src/components/agent/use-agent-run.ts` is `runId === null && !isBusy ? storedThread : null`, and `start()` clears `runId` before it fetches, so a refused start leaves `runId` null and `isBusy` false and the stored conversation reads as interrupted; the docblock beside it fixed the same false sentence for the in-flight window only.
+Seen 2026-10-30 on LibreDB in a browser pass, after choosing the Optimize workflow, which that engine does not offer (U162); the cause is not engine-specific.
+
+**Done when:** a refused start does not announce the stored conversation as ended by a reload (it keeps the conversation, or says the start was refused), with a hook test that refuses a start after a finished run.
 
 ## Dependencies
 
@@ -8515,6 +8534,17 @@ Kept so that the engine joined on the members measured on it, and nothing compos
 Found 2026-10-30 with agent execution on Apache Druid.
 
 **Done when:** the Druid overlay gains an estimating plan whose `EXPLAIN PLAN FOR` the agent path's fence admits, measured on 37.0, and a profile composition, or a recorded decision that it keeps none, with tests for each; cited in `docs/AGENT.md`.
+
+### B152. LibreDB's command language has no MCP statement tool
+
+Agent mode executes LibreDB read commands under the `libredbkv` statement language, on a read-only handle per statement (`docs/providers/libredb.md` section 15), and its MCP facet is null (`AGENT_LANGUAGE_MCP_FACETS` in `src/lib/agent/languages/mcp.ts`), so no MCP tool runs a LibreDB command; `MCP_STATEMENT_READ.libredb` is false and the MCP metadata tools work (`MCP_EXPOSABLE.libredb` is true).
+A facet declared with an empty served set would add its tool name to `list_connections`' `read_tool` values and to the route's schema map while serving nothing, so none is declared until MCP read opens.
+The language also offers no query optimization and no database assessment, since the store has no query plan and no table profile; plan mode drafts there and the operations workflow runs.
+Kept so that MCP exposure of a LibreDB file is a decision of its own rather than a side effect of agent mode joining.
+
+Found 2026-10-30 with agent execution on LibreDB.
+
+**Done when:** the owner opens MCP read for LibreDB, the `libredbkv` pack declares its MCP facet (`src/lib/agent/languages/libredbkv/mcp.ts`, registered in `AGENT_LANGUAGE_MCP_FACETS`) fenced by the agent's own admission, and `MCP_STATEMENT_READ.libredb` is true, with tests; cited in `docs/AGENT.md`.
 
 ## Passkey deferrals (#785)
 
