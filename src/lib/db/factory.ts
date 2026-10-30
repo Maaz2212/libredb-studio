@@ -414,11 +414,12 @@ export async function createDatabaseProvider(
     }
 
     // Two type-ids served by one directory, one per query language (InfluxDB spec I2, I23). Both are read-only
-    // whatever the flag says, so no execution context rides along, as for Neo4j.
+    // whatever the flag says. The execution context decides whether the open proves the principal reads only, for
+    // the agent read-only profile.
     case "influxdb": {
       // The explicit /index specifier keeps this dynamic import statically analysable.
       const { InfluxDBProvider } = await import("./providers/timeseries/influxdb/index");
-      return new InfluxDBProvider(connection, options);
+      return new InfluxDBProvider(connection, options, execution);
     }
 
     case "influxdb3": {
@@ -1371,7 +1372,7 @@ export type ExecutionProfile = "agent-read-only" | "agent-operations" | "agent-h
  * handle or transaction, a least-privilege principal the server's own answers prove, or a
  * Studio-enforced request allowlist plus the identity's own authorization), and only the
  * providers of AGENT_EXECUTION_ENGINES implement that: PostgreSQL, SQLite,
- * DuckDB, SQL Server, MySQL, Kubernetes, MongoDB, ClickHouse, libSQL, InfluxDB 3 (SQL), Elasticsearch, OpenSearch, Oracle, Db2 LUW, Apache Cassandra, Couchbase, Apache Druid and LibreDB (`src/lib/agent/engine-support.ts`). `agent-operations` sends no statement
+ * DuckDB, SQL Server, MySQL, Kubernetes, MongoDB, ClickHouse, libSQL, InfluxDB 3 (SQL), Elasticsearch, OpenSearch, Oracle, Db2 LUW, Apache Cassandra, Couchbase, Apache Druid, LibreDB and InfluxDB (InfluxQL) (`src/lib/agent/engine-support.ts`). `agent-operations` sends no statement
  * at all — it calls the curated reporting methods every provider implements — so
  * requiring a read-only STATEMENT path of it would refuse an engine over a capability
  * the profile never uses. `agent-handover` sends a statement too — the one a run
