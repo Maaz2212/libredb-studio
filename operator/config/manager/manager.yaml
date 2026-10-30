@@ -71,6 +71,12 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        # The console plugin's image, which operator/watches.yaml hands the chart
+        # as openshift.consolePlugin.image, with WATCH_NAMESPACE above as
+        # openshift.consolePlugin.namespace, so a LibreDBStudio can neither swap
+        # the image nor move the server.
+        - name: RELATED_IMAGE_PLUGIN
+          value: ghcr.io/libredb/libredb-studio-openshift-plugin:0.1.0@sha256:39698233d019f4e69fe106e634af789291011d59d27d5858a7e4d0b41283d86e
         image: controller:latest
         name: manager
         ports: []
