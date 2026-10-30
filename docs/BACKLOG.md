@@ -31,7 +31,7 @@ None of it is a GitHub issue.
 - [Drivers and connections](#drivers-and-connections) — D1-D413, U17 · 303
 - [Value interpolation](#value-interpolation) — V1
 - [Row editing](#row-editing) — R1–R3 · 3
-- [Studio UI and query execution](#studio-ui-and-query-execution) — X2-X25, U2-U176 · 162
+- [Studio UI and query execution](#studio-ui-and-query-execution) — X2-X25, U2-U179 · 165
 - [Dependencies](#dependencies) — P1-P12 · 10
 - [Documentation](#documentation) — DOC3-DOC35 · 31
 - [Release pipeline](#release-pipeline) — REL1-REL9 · 9
@@ -6169,6 +6169,7 @@ Seen again 2026-10-30 on Neo4j Enterprise 5.26.31 in a browser pass: asked to pa
 Seen again 2026-10-30 on Milvus 3.0.2 in a browser pass: two runs on a reader asked to pass an exact insert, upsert, delete, collection create and drop, index create, load, release, flush, compaction and alias alter to `run_read_query` drafted none of them and finished `answered` with the collection list and a row count and no word of the eleven requests (runs `arun_70eaf9fb14314b1bb1c147a2d675958a`, `arun_1c54f478ca6640f595a5dd7336e90d2c`); a run asked for seven value reads did pass each one and each was refused before anything was sent, yet its answer carried two claims about the collection list and the row count and no word of the seven refusals (run `arun_7ba4cb533d514bc2a68b6c3b8335d45c`).
 Seen again 2026-10-30 on Redis 8.10.2 and Valkey 9.1.2 in a browser pass: a reader run asked to pass `SET`, `DEL`, `EXPIRE`, `FLUSHALL`, `CONFIG SET` and `PUBLISH`, and one asked for eleven exact key listings, value reads, `INFO`, `CLIENT LIST`, `EVAL_RO` and writes, had each refused before anything was sent (`STATEMENT_NOT_ADMITTED`) and finished `answered` with the key count or the schema inventory and no word of the refusals (runs `arun_99eba3db246d4afe90057698e9fad5dc`, `arun_9fbf210c14aa4292837cf7fdaab84d60`); two earlier Redis runs asked for the same list drafted none of it.
 Seen again 2026-10-30 on etcd v3.7.2 in a browser pass: reader runs asked to pass eleven exact writes and maintenance calls (`put`, `del`, `compaction`, `defrag`, `lease grant`, `lease revoke`, `snapshot save`, `member add`, `auth disable`, `alarm disarm`, `move-leader`) and eleven key listings and value reads had each refused before anything was sent (`STATEMENT_NOT_ADMITTED`) and finished `answered` with one claim about the schema inventory and no word of the refusals (runs `arun_5aeadd9883d64e93b4d622e5010805af`, `arun_50519bcbf3ae48ee9811496b84559669`); a third, asked for six refused forms and one admitted read, reported only the read (run `arun_17ddc9181e6844fc9e00b444ce387241`).
+Seen again 2026-10-31 on Oxia 0.18.0 in a browser pass, three times: runs asked to pass five exact range and prefix counts and a `range-scan`, six comparison, secondary-index and partition-key gets, and six writes (`put`, `delete`, `delete-range`, a sequence put, an `oxia client put` and a second `put`) had each refused before anything was sent (`STATEMENT_NOT_ADMITTED`) and finished `answered` with one claim about the shard inventory and no word of the refusals (runs `arun_edb5f3a078e6409e9146d6a253775610`, `arun_54f99a1a809741f7ad7e5abfb7a98795`, `arun_3963a0fa92a34eec9e10d816026e936a`); a fourth, asked for six refused forms and one admitted read, did report each refusal (run `arun_511a965b46ce48c394e928c97996dff3`).
 
 **Done when:** a run whose only drafted statement was refused either reports that refusal in its answer, held by the run's verifier, or ends in a state other than `answered`, with an agent test that forces the refusal.
 
@@ -6368,6 +6369,31 @@ Seen 2026-10-30 on SQL Server in the pre-release browser E2E of Studio 1.1.0 (bu
 Found 2026-10-30 in the pre-release browser E2E; pre-existing.
 
 **Done when:** the rail offers the setting only on a connection whose engine has a plan reading the gate can weigh, read from the explain strategy rather than a type-id branch, and `tests/components/agent/AgentRail.test.tsx` pins the checkbox absent on SQL Server and present on PostgreSQL.
+
+### U177. The agent rail offers Apply to editor for an Oxia `shards` command the editor refuses
+
+Every statement an agent run drafts carries Apply to editor in the rail, including Oxia's `shards`, which is Studio's own agent word for the shard map (`src/lib/db/providers/keyvalue/oxia/agent-statement.ts`).
+Applied and run, the editor answers "shards is not a command Studio runs on Oxia: it runs get, list (ls) and range-scan (scan).", so the button hands the user a command that cannot run where it is handed.
+The other two agent reads, `get <key>` and `list`, run in the editor, where `list` lists the key names agent mode withholds; that is the editor's path and expected.
+Seen 2026-10-31 on Oxia 0.18.0 in a browser pass (runs `arun_ad725d1c2ca14394983f955398cc9d4f`, `arun_a281c29cd2bd481e91b49ffae2008dcf`).
+
+**Done when:** Apply to editor is offered only for a drafted statement the connection's editor grammar admits, or says why it is not, decided from the provider's editor parser or a contract row and not a type-id branch, with an AgentRail test on an Oxia `shards` step.
+
+### U178. The workflow classifier opens Operate for an objective that asks for exact `run_read_query` commands
+
+Two Automatic starts on Oxia whose objective asked the agent to call `run_read_query` with exact commands, once range counts and once writes, were opened as Operate ("Opened as Operate, read from your objective."), a workflow that has no `run_read_query`.
+Each run took the six operations readings and answered with them, so the commands the user named were never drafted; the same objective started with Investigate chosen under Advanced drafted and refused each one.
+Seen 2026-10-31 on Oxia 0.18.0 in a browser pass (runs `arun_ab46aeacecef44a386743551d8d2e6d0`, `arun_cbf596339a664ddca6a244ae5bdd199f`); the classifier is not engine-specific.
+
+**Done when:** an objective that names `run_read_query` or asks for statements to be run opens a workflow that holds `run_read_query`, held by a classifier test over such objectives.
+
+### U179. An agent run that made fourteen tool calls in one turn shows none of them in the rail
+
+Asked to send fourteen exact commands, one per call, the model made all fourteen calls in its first turn; the ledger records only `guidance-issued` with `notice: "report-reminder"` and `toolCalls: 14`, no `statement-drafted`, `tool-refused` or `call-held` for any of them, and the run finished `answered` with one claim about the shard inventory.
+The rail showed no step for any of the fourteen, so a reader cannot tell whether they were run, refused or dropped; the ceiling narrowing in `src/lib/agent/investigation.ts` is the likely place they stopped.
+Seen 2026-10-31 on Oxia 0.18.0 in a browser pass (run `arun_ec7de588bc264344b907cce84d730e6b`); nothing reached the server, and the same commands sent one per turn were each recorded and refused.
+
+**Done when:** every tool call a turn makes leaves a ledger entry the rail shows, run, refused or held with its reason, with an investigation test that makes more calls in one turn than the ceiling allows.
 
 ## Dependencies
 
@@ -8229,13 +8255,19 @@ Found 2026-10-04 while designing the InfluxDB provider (ruling R10).
 
 **Done when:** MCP serves `influxdb`'s InfluxQL through its own MCP facet in its language pack (`src/lib/agent/languages/influxql/mcp.ts`, registered in `AGENT_LANGUAGE_MCP_FACETS`), under the same principal proof, with `MCP_STATEMENT_READ.influxdb` opened by the owner, and a 2.x agent token is accepted beside the connection's own credential, with tests.
 
-### B100. Oxia has no agent execution and no MCP surface
+### B100. Oxia's agent reads are metadata only, and it has no MCP statement tool
 
-`MCP_EXPOSABLE.oxia` is false and the provider implements no `queryReadOnly` (O14; key paths name Pulsar tenants and topics).
+Agent mode executes Oxia metadata reads under the `oxiacli` statement language, over a gRPC stub that holds only the shard map, Read, List and RangeScan calls (`docs/providers/oxia.md`, section 15).
+Oxia 0.18.0 checks a token and authorizes nothing, so any authenticated client writes and deletes every key; no reader can be proved, and the provider's closed table is the boundary: it sends no write, delete, session, notification, sequence, range-scan or read of another namespace.
+Key names count as stored values, since Pulsar's key paths name tenants, namespaces and topics (O14), so the reads are the namespace's shard and leader counts, one named key's existence, version, times, value size and ephemeral flag (never its session id or client identity), and the count of every key in the namespace, counted in Studio and refused past the row budget; a count over a range or prefix the request names is refused, since narrower counts would spell out key names: nothing lists keys, reads a value, or reads by comparison, secondary index or partition key, and every answer is projected to names, counts and sizes (`ProviderCapabilities.metadataOnly`, `src/lib/db/redaction/metadata-only.ts`).
+On a handle of either agent profile the editor's command path, the Keys panel and a key's listing and source are refused, and the grounding and the operations workflow read the shard rows alone.
+So the language offers the investigation and the operations workflow only: data analysis needs stored values, and query optimization and database assessment need a plan and a profile the server does not compose.
+Its MCP facet is null (`AGENT_LANGUAGE_MCP_FACETS` in `src/lib/agent/languages/mcp.ts`) and `MCP_EXPOSABLE.oxia` and `MCP_STATEMENT_READ.oxia` are false, so no MCP tool reads an Oxia connection.
+Kept so that key-name and value exposure and MCP exposure are decisions of their own rather than side effects of agent mode joining.
 
-Found 2026-10-04 while designing the Oxia provider (DECISIONS O14).
+Found 2026-10-04 while designing the Oxia provider (DECISIONS O14); narrowed 2026-10-30 when agent mode joined Oxia.
 
-**Done when:** an MCP metadata surface that never returns a key value is designed and its own MCP facet in its language pack (`src/lib/agent/languages/<statement-language>/mcp.ts`, registered in `AGENT_LANGUAGE_MCP_FACETS`) serves a read command under the `oxia` grammar, with tests; cited in `docs/AGENT.md` beside B93.
+**Done when:** the owner rules on whether agent mode may read key names and which values it may read on Oxia and how they are redacted, the `oxiacli` pack offers the workflows that ruling opens, a per-engine exposure ruling opens MCP for Oxia, the pack declares its MCP facet (`src/lib/agent/languages/oxiacli/mcp.ts`, registered in `AGENT_LANGUAGE_MCP_FACETS`) under the same table and projection, and `MCP_EXPOSABLE.oxia` and `MCP_STATEMENT_READ.oxia` are true, with tests that every MCP answer carries no key name or value; cited in `docs/AGENT.md`.
 
 B100 rather than the next free id: InfluxDB, built at the same time, took B94, and the gap kept the two from racing for an id.
 
