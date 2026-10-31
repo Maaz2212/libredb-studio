@@ -63,14 +63,14 @@ The cancel row runs `sum(count_over_time(label_replace({__name__=~".+"}, "probe_
 |---|---|---|
 | `connect` | answered | answered |
 | `getHealth` | answered | answered |
-| `getOverview` | answered | failed: `ConnectionError` The server answered /api/v1/status/flags with HTTP 400 and a body that is not a Prometheus API response. A proxy or a login page in front of the server answers this way, and so does a server that does not serve this path. The body is not shown. |
+| `getOverview` | answered | failed: `QueryError` The server does not serve /api/v1/status/flags: it answered HTTP 400 naming that path as unsupported, as VictoriaMetrics answers a Prometheus API path it does not implement. |
 | `getPerformanceMetrics` | answered | answered |
 | `getMonitoringData` | answered | answered, with its overview and storage panels failed on the 400s above |
 | `getSlowQueries` | answered | answered |
 | `getActiveSessions` | answered | answered |
 | `getTableStats` | answered, 50 metrics | answered, 10 metrics |
 | `getIndexStats` | answered | answered |
-| `getStorageStats` | answered | failed: `ConnectionError` The server answered /api/v1/status/runtimeinfo with HTTP 400 and a body that is not a Prometheus API response. A proxy or a login page in front of the server answers this way, and so does a server that does not serve this path. The body is not shown. |
+| `getStorageStats` | answered | failed: `QueryError` The server does not serve /api/v1/status/runtimeinfo: it answered HTTP 400 naming that path as unsupported, as VictoriaMetrics answers a Prometheus API path it does not implement. |
 | `listContainers` | answered | answered |
 | `countObjects` | answered | answered, with the scrape pool count unavailable on the `listObjects:scrape_pool` message |
 | `listObjects:metric` | answered | answered |
@@ -89,7 +89,7 @@ The cancel row runs `sum(count_over_time(label_replace({__name__=~".+"}, "probe_
 | `describeObject:alerting_rule` | answered | skipped: listObjects returned no object to describe |
 | `describeObjects:alerting_rule` | answered | answered |
 | `readObjectSource:alerting_rule` | answered | skipped: listObjects returned no object to read |
-| `listObjects:scrape_pool` | answered | failed: `ConnectionError` The server answered /api/v1/scrape_pools with HTTP 400 and a body that is not a Prometheus API response. A proxy or a login page in front of the server answers this way, and so does a server that does not serve this path. The body is not shown. |
+| `listObjects:scrape_pool` | answered | failed: `QueryError` The server does not serve /api/v1/scrape_pools: it answered HTTP 400 naming that path as unsupported, as VictoriaMetrics answers a Prometheus API path it does not implement. |
 | `describeObject:scrape_pool` | answered | skipped: listObjects did not list the scrape pool prometheus to describe |
 | `describeObjects:scrape_pool` | answered | answered |
 | `readObjectSource:scrape_pool` | answered | skipped: listObjects did not list the scrape pool prometheus to read |
@@ -118,7 +118,10 @@ A metric's columns are the same on both servers: `prometheus_http_requests_total
 The overview reads the first two at once, beside the build and TSDB status reads, so its message names whichever of the two answered first, which can differ from one call to the next: `getOverview` named `/api/v1/status/flags` in the pass above, as the overview panel of the monitoring read did, and `/api/v1/status/runtimeinfo` in an earlier pass the same day.
 The storage row reads the first, and the Scrape pools folder the third, whose count then reads unavailable with the folder's message.
 The storage row also needs the head statistics, which the TSDB status below does not carry, and the provider refuses a status without them as unmeasured rather than show an empty head (`storageStatsFrom` in `monitoring.ts`).
-Each message names the path and the status, and offers the sources such an answer can have without choosing one: a proxy or a login page in front of the server, or a server that does not serve the path, which is what answered here.
+Each of the three refusals is the server's own answer, so each is a `QueryError` saying the server does not serve that path, not a `ConnectionError`, which would read as a server Studio could not reach.
+The transport reads a `400` that way only when its whole body is VictoriaMetrics' text for the path the request was sent to, `unsupported path requested: "<the path>"` and a newline (`unsupportedPathText` in `http-transport.ts`); a `400` with any other body, which a proxy or a login page answers too, stays the `ConnectionError` of [section 10](#10-error-handling).
+The class and message in those three rows are re-read on 2026-10-31 against the same image by digest, after the classification changed, where the overview named `/api/v1/status/runtimeinfo`, the other of its two paths; every other row is the 2026-09-23 pass.
+On the agent path the refusals are a reason rather than a failure ([section 14.4](#144-values-and-what-each-path-reads)).
 
 **Three documents lack a member Prometheus sends, and are read without it.**
 Each of those members only describes its object, so the provider reads the document without it and puts nothing in its place, while a member that identifies or classifies an object stays required (`transport.ts`).
@@ -316,12 +319,11 @@ These partial records deliberately have none:
 |---|---|---|
 | `export.ddlTypes` (`STANDARD_DDL_TYPES`) | `src/lib/db/providers/timeseries/prometheus/sql-writing.ts` | An export's column types map SQL DDL spellings; PromQL has no DDL, so the standard spellings stand |
 | The engine overlays' `catalogCapture` | `src/lib/agent/languages/sql/engines/` | Plan mode grounds Prometheus through the provider's own object surface, not through composed catalog statements |
-| The engine overlays' `catalogRead`, `planEstimate` | `src/lib/agent/languages/sql/engines/` | They serve `AGENT_EXECUTION_ENGINES`, and agent execute mode is out of scope for PromQL (#1085, section 2) |
+| The engine overlays' `catalogRead`, `planEstimate` | `src/lib/agent/languages/sql/engines/` | They are SQL composers; agent mode reads Prometheus in its own `promql` statement language ([§14](#14-agent-mode)), which composes no catalog read and no estimating plan |
 | The engine overlays' `statistics` | `src/lib/agent/languages/sql/engines/` | Prometheus holds no table statistics a run knows how to read; its series counts are TSDB top-N figures, not estimates |
 | `ENGINE_URI_SCHEMES` | `src/lib/db/connection-string/index.ts` | No connection string ([§4.5](#45-no-connection-string)) |
 | `createTable` | `src/lib/db/types.ts` (`CreateTableSpec`) | Only engines that declare a `createTable` reach the Create Table form; Prometheus declares none |
 | `SQL_GRAMMAR` | `src/lib/db/sql-grammar/` | PromQL is not SQL, and the `prometheus` row declares `readsSqlText: false` ([§5.7](#57-sql-grammar)). Nothing on the run path reads PromQL under a SQL grammar: the confirmation gate answers from the `prometheus` row of `NON_SQL_DESTRUCTIVE_VOCABULARY` before any SQL reading ([§5.1](#51-the-call)), the multi-statement route is taken only where `queryLanguage` is `sql`, and the provider's own `prepareQuery` returns the text unchanged |
-| `AGENT_EXECUTION_ENGINES` | `src/lib/agent/engine-support.ts` | Agent execute mode is a non-goal; plan mode and the `operations` workflow still reach the server |
 
 `src/lib/sql/identifier.ts` is a `switch` with a `default` and needs no case.
 
@@ -501,6 +503,7 @@ The tree draws one flat root folder per declared kind, and a child's row name sa
 | `target` | `config`, `attachedTo: scrape_pool` | `[pool, targetSegment]` | `<instance> (<pool>)` | no | the target | `down` or `unknown`, the engine's word |
 
 The declaration order is the agent walk's order: metric, rule_group, recording_rule, alerting_rule, scrape_pool, target (M7).
+`scrape_pool` declares `countIsListing`, since its count is its listing: where the count was refused, as VictoriaMetrics refuses `/api/v1/scrape_pools`, the agent's grounding walk sends no listing and carries the refusal as the kind's reason, so the inventory keeps every other kind.
 Identity is the engine's own, decided from the upstream source:
 
 - `groupKey` is `<file>;<group>`, the key Prometheus uses, because group names need not be unique across files.
@@ -595,6 +598,7 @@ Each surface reads the HTTP API only, and a surface that cannot give an honest n
 | `getPoolStats()` | not implemented | The route detects it by presence and shows its fallback |
 
 The `operations` agent workflow reads these surfaces on every engine in both modes, so agent runs reach the monitored server through them too.
+On a handle opened for an agent-mode profile the overview, performance, slow-query, session and index readings answer their reason instead ([§14.4](#144-values-and-what-each-path-reads)).
 
 ---
 
@@ -650,6 +654,7 @@ Mapped from the envelope's `errorType`, not from the HTTP status, as Druid and T
 | any 3xx | `ConnectionError` naming the status and the `Location` origin |
 | TLS handshake or verification failure | `ConnectionError` carrying the Node error code |
 | refused connection, reset, DNS failure | `ConnectionError` |
+| a `400` whose whole body is `unsupported path requested: "<the path>"` and a newline, for the path the request was sent to, the answer VictoriaMetrics gives a path it does not serve | `QueryError` saying the server does not serve that path |
 | a body that is not the API envelope (a proxy's HTML page, a 502, or the plain-text 503 the server's own ready gate, `testReady` in `web/web.go`, answers while it starts up or shuts down) | `ConnectionError` naming the path and the status and the sources such an answer can have, without choosing one and without quoting the body |
 | a response past `RESPONSE_BYTE_CAP` | `QueryError` naming the cap |
 | an overview whose metric count cannot be measured (M2), or a storage row whose TSDB status carries no head statistics | `QueryError` |
@@ -745,7 +750,7 @@ See [`docs/API_DOCS.md`](../API_DOCS.md) for the full request and response contr
 - **The query timeout does not cover the wait for a query slot** ([§5.5](#55-timeout-and-cancellation)).
 - **No AWS Managed Prometheus**: it needs SigV4 signing for the `aps` service.
 - **No EXPLAIN**, because the only parse endpoint is experimental.
-- **No agent execute mode for PromQL**, out of scope for the whole #424 epic; plan mode grounds through the object surface and drafts PromQL for the user to run.
+- **Agent mode reads instant queries only** ([§14](#14-agent-mode)): no range query and no request parameter is written by the model, so a window is a range vector or a subquery inside the expression.
 - **On a server past `METRIC_LIST_CAP` metric names or `DESCRIBE_SERIES_CAP` series in the hour, plan mode grounds metrics only**, because the grounding walk stops at the metric folder's truncated batch (M7, `docs/BACKLOG.md` B84).
 - **A listed metric whose series went quiet before the hour is left out of the bulk column read**, and the inventory carries it with no columns ([§6.1](#metric-columns), `docs/BACKLOG.md` D107).
 - **The overview's metric count is unavailable only when a full list of `TSDB_LABEL_SCAN_LIMIT` label names omits the `__name__` entry** (M2), and a listed entry is the full count at any length of that list.
@@ -766,7 +771,86 @@ The refusal reason it prints, verbatim:
 
 ---
 
-## 14. References
+## 14. Agent mode
+
+Agent mode reads Prometheus through `queryReadOnly` in [`index.ts`](../../src/lib/db/providers/timeseries/prometheus/index.ts), in its own statement language, `promql`.
+The expression reader is [`agent-statement.ts`](../../src/lib/db/providers/timeseries/prometheus/agent-statement.ts), the counting, the budgets and the wording of a failure are [`agent-read.ts`](../../src/lib/db/providers/timeseries/prometheus/agent-read.ts), what an agent-mode handle keeps of the server's answers is [`agent-projection.ts`](../../src/lib/db/providers/timeseries/prometheus/agent-projection.ts), and every other surface of an agent-mode handle is [`agent-surface.ts`](../../src/lib/db/providers/timeseries/prometheus/agent-surface.ts).
+Every claim below about a server cites the capture [`tests/fixtures/prometheus/v3.13.3/agent-boundary/boundary.json`](../../tests/fixtures/prometheus/v3.13.3/agent-boundary/boundary.json), recorded by its `run.sh` against a fresh `prom/prometheus:v3.13.3` by digest, started with `--web.enable-admin-api`, `--web.enable-remote-write-receiver` and `--web.enable-lifecycle` and with `--query.max-samples` lowered to 100000, and a fresh VictoriaMetrics v1.152.0 by digest, and written by [`tests/live/prometheus-agent-boundary.ts`](../../tests/live/prometheus-agent-boundary.ts).
+Its scrape targets carry a token in their query string and a user name and password in an address, generated per run outside the repository; the script refuses to write a capture that holds either value or any URL with a query token or userinfo, and records a raw target by which of its fields carry one, never by a value.
+
+### 14.1 The boundary
+
+The boundary is a structural closed table: the transport ([`http-transport.ts`](../../src/lib/db/providers/timeseries/prometheus/http-transport.ts)) builds requests only to the paths of its own table, every one of them a GET of a read endpoint except the instant query, `POST /api/v1/query`, and PromQL has no construct that writes.
+An agent read is sent through the console's own request builder, so its form carries the expression, `timeout` and `limit` and nothing else.
+So no admin (`delete_series`, `clean_tombstones`, `snapshot`), remote-write, OTLP or lifecycle (`/-/reload`, `/-/quit`) endpoint, and none of VictoriaMetrics' import or admin endpoints, can be reached on the agent path.
+[`agent-provider.test.ts`](../../tests/unit/db/prometheus/agent-provider.test.ts) pins each read's full request (method, path, URL parameters and form body) and drives every read an agent-mode handle can make, holding each request it sends to the table; [`agent-boundary.test.ts`](../../tests/unit/db/prometheus/agent-boundary.test.ts) replays the capture.
+
+No credential can be the boundary: the server the capture measured took every raw admin and lifecycle request the capture script sent (`rawRequests`, sent by the script and never by Studio): `delete_series` answered 204 and removed the seeded series' samples, `clean_tombstones` 204, `snapshot` 200 with a snapshot's name, `/-/reload` 200 with a new configuration time, and `/-/quit` 200, stopping the server; the remote-write receiver answered an empty body 400, having read it, and OTLP, which was off, 404.
+VictoriaMetrics took `/api/v1/import` (204), its own `delete_series` (204), `/snapshot/create` and `/internal/force_merge` (200) the same way.
+Studio's own reads left the state as it was (`studioLeftStateUnchanged`: the start time, the last configuration time, the seeded series' samples at a fixed instant and the head block, read before and after).
+
+### 14.2 What an agent read may be
+
+One PromQL expression, written as the console writes it and evaluated as an instant query at the server's own now, the way the console runs it ([section 5.1](#51-the-call)).
+A window is a range vector or a subquery inside the expression (`rate(x[5m])`, `max_over_time(x[1h])`); `query_range` is not on the table, and the agent writes no time, range, step, limit or other parameter.
+The reader mirrors the top level of the v3.13.3 lexer (`lexStatements` and `lexInsideBraces` in `promql/parser/lex.go`): the closed table of what may start a token there, `#` comments, the three string forms, numbers and durations, identifiers, the operators and the brackets, whose nesting it checks.
+So a character the lexer has no row for (`&`, `?`, `;`, `\`, `|`), a dashboard variable such as `$__range`, `$__interval` or `$__rate_interval`, which is a dashboard's time-range directive that only a dashboard expands, a JSON request (refused at the colon inside its braces), an unterminated string and an unbalanced bracket are refused before anything is sent, with the reader's sentence followed by agent mode's list of reads.
+The admission also refuses an expression longer than 4,096 characters.
+`@` and `offset` are admitted: they move the instant the expression is evaluated at, and the answer is counted whatever instant it covers.
+
+The server's `timeout` is the read's time budget, and the same budget is the deadline of the whole read, the wait for one of the connection's query slots ([section 3.4](#34-the-servers-query-slots-are-shared)) included.
+A vector counts one row per series and a matrix one row per sample, float and native histogram points alike; a scalar and a string count one.
+The query asks for one series past the row budget (`limit`), so a server that cut its answer there is seen, and an answer past the row budget is refused, never cut (`Read-only execution exceeded the row budget: 2 rows > 1 allowed`, measured); VictoriaMetrics ignores `limit`, so its whole answer is read, under the response byte cap, and counted (`4 rows > 1 allowed`).
+An answer the console's grid would cut ([section 5.4](#54-caps-warnings-and-truncation)) and one past the byte budget are refused the same way.
+An evaluation's cost on the server is bounded by its time-out and by the server's own sample limit, and neither is a cut: a refusal of either is a refusal of the read.
+
+A failure is worded by its category.
+Studio's own refusals say they are Studio's: the row, byte and time budgets (`Read-only execution exceeded the time budget: no answer within 1ms, the read's time budget, so Studio stopped the read and refused it. This is Studio's refusal, not the server's answer.`, measured), and an answer past the response cap.
+A time-out the server reached at the deadline Studio sent, and an evaluation the server refused (`execution`, its own `--query.max-samples` among them, measured), are named by their category with the time budget and never in the server's own text.
+A parse error keeps the server's sentence, which describes the expression the model wrote.
+VictoriaMetrics names a category by its HTTP status, `400` for a parse error and `422` for its own points limit (measured), and the agent reads those as `bad_data` and `execution`.
+
+### 14.3 What an agent-mode handle withholds
+
+Samples, label values, rule and target state are the server's monitoring data, so the agent reads them, answered as the console renders them, inside the untrusted-content fence.
+On every handle opened for an agent-mode profile the transport is wrapped by the projection, so the object surface, the grounding walk and the monitoring readings read its answers and nothing else:
+
+- The server's command-line flags are withheld whole, before anything is sent: they carry file paths, listen addresses, URLs and local configuration (the capture lists 73 flag names, `config.file`, `storage.tsdb.path` and `web.external-url` among them). The overview, which reads its connection ceiling from them, is withheld with that reason.
+- Every URL a target, a rule, an alert or a PromQL answer carries keeps only its scheme, host, port and path, followed by `[userinfo, query string and fragment withheld]` when it lost any of them: a target's scrape URL and last error, every label and discovered label, a rule's expression, labels and last error, an alert's labels and annotations, and every label of a series a PromQL answer carries. An address written with userinfo (`user:password@host:port/path`) keeps its host, port and path, and a URL with no scheme (`//host/path`) its host and path, never a query string or a fragment. A URL that does not parse, and a word whose `://` has no scheme in front of it, are withheld whole.
+- Every scrape parameter among a target's discovered labels (`__param_<name>`) is withheld.
+
+Measured raw, a target with a token parameter carries it in its scrape URL, its global URL, its last error and as `__param_token`, and a target whose address holds userinfo carries it in `__address__` and `instance` (and, on VictoriaMetrics, in its scrape URL) (`rawTargets`); the agent's target names carry neither (`surfaces.targets`).
+The projection runs on the decoded answer, so a target's path segment, its scrape URL and a digest of its labels, is built from the projected answer and carries nothing withheld, not even as a digest.
+A PromQL answer's labels are projected the same way, so `up` names a target whose address holds userinfo by its host and port.
+The projection goes by a value's shape, so what it cannot reach is a label value an expression rewrites (`label_replace`) so that it no longer reads as a URL or an address, and a matcher that selects on a stored value; both stay with what the server stores, the posture and the grounding name both, and the residual is recorded in [B161](../BACKLOG.md#b161-prometheuss-agent-reads-withhold-the-flags-and-url-secrets-and-it-has-no-mcp-statement-read).
+
+### 14.4 Values, and what each path reads
+
+| Path | Handle | What it reads |
+| --- | --- | --- |
+| Investigation and data-analysis reads | agent read-only profile | one expression of [section 14.2](#142-what-an-agent-read-may-be) |
+| Investigation grounding, plan-mode grounding and the operations workflow's inventory | either agent profile | the metric names of the last hour with their label names, the rule groups and rules, and the scrape pools and targets, by name, through the projection; the series' label sets are read to learn their label names, and the names alone are kept; a server that does not serve the scrape pool listing, VictoriaMetrics, leaves that kind out with its refusal as the kind's reason, and every other kind is read |
+| Health, storage and table readings | either agent profile | the server's own answers, as on an editor handle, never the flags; the server publishes no byte count, and the storage and table readings' shape requires one, so each byte figure is a 0 with the text beside it saying it is a placeholder, not a measurement; on VictoriaMetrics the storage reading is refused with the server not serving `/api/v1/status/runtimeinfo` (`surfaces.storage` in the capture), a reason the model reads, so an operations run that takes it goes on to its report |
+| Console, overview, performance, slow-query, session and index readings | either agent profile | nothing: each is refused with its reason, never answered with Studio's own figures or an empty reading |
+
+### 14.5 Agent language pack
+
+Statement-language family: `promql`.
+Overlay: [`src/lib/agent/languages/promql/engines/prometheus.ts`](../../src/lib/agent/languages/promql/engines/prometheus.ts), with its client row in [`src/lib/agent/languages/promql/engines/client.ts`](../../src/lib/agent/languages/promql/engines/client.ts).
+The agent reads it through `runServerPack` and `agentEnginePack`.
+Both overlays are empty, so the engine resolves to the `promql` family pack itself.
+The `promql` statement-language family has no dialect-bound member.
+This overlay overrides no Shared member, so every Shared member is the `promql` statement-language family's own.
+The family offers the investigation and the data analysis, through `run_read_query` with one expression, and the operations workflow; it offers no query optimization or database assessment, since the server composes no plan an agent can be shown and Studio no table profile, and no workflow hands an answer to the editor.
+Plan mode's safety strip is the family's own (`posture.plan` in [`client.ts`](../../src/lib/agent/languages/promql/client.ts)): "the server's read endpoints ground it, and no PromQL it drafted is evaluated", because the grounding is several read endpoints rather than one schema read; plan mode follows the provider's `statementLanguage` label, `PromQL`.
+The editor language id stays `promql`, and the fence alias `promql` names this engine.
+VictoriaMetrics is served by the same provider and the same type-id, so it takes the same agent path; it was measured beside Prometheus in the capture, and its own admin and import endpoints are not on the table either.
+A pack does not open agent mode: execution is gated by `AGENT_EXECUTION_ENGINES` and the execution-profile check.
+No MCP tool runs PromQL: the family declares no MCP facet and `MCP_STATEMENT_READ.prometheus` is false ([B161](../BACKLOG.md#b161-prometheuss-agent-reads-withhold-the-flags-and-url-secrets-and-it-has-no-mcp-statement-read)); `MCP_EXPOSABLE.prometheus` stays true for the metadata tools, which read through the same projection, and `READ_ONLY_ENFORCED.prometheus` is unchanged.
+
+---
+
+## 15. References
 
 - Source: [`src/lib/db/providers/timeseries/prometheus/`](../../src/lib/db/providers/timeseries/prometheus/)
 - Editor language: [`src/lib/db/providers/timeseries/prometheus/editor-syntax.ts`](../../src/lib/db/providers/timeseries/prometheus/editor-syntax.ts)
