@@ -28,7 +28,7 @@ None of it is a GitHub issue.
 **Sections**
 
 - [SQL statement reading](#sql-statement-reading) — S2-S10 · 7
-- [Drivers and connections](#drivers-and-connections) — D1-D413, U17 · 303
+- [Drivers and connections](#drivers-and-connections) — D1-D413, U17 · 302
 - [Value interpolation](#value-interpolation) — V1
 - [Row editing](#row-editing) — R1–R3 · 3
 - [Studio UI and query execution](#studio-ui-and-query-execution) — X2-X25, U2-U190 · 175
@@ -2469,15 +2469,6 @@ Kubernetes, plain Docker Compose and other Docker Swarm platforms have no discov
 Deferred by the CapRover auto-connect work.
 
 **Done when:** a second platform writes the same export contract under its own `platform` value, with its own exporter tests, or the decision not to support one is stated in `docs/SEED_CONNECTIONS.md` and this entry is deleted.
-
-### D230. `useAllConnections` loads the managed list once
-
-`useAllConnections` (`src/hooks/use-all-connections.ts`) fetches `/api/connections/managed` in its mount effect and never again, while `useConnectionManager` refreshes the same list on an interval and on focus.
-Its callers, the admin Overview and Operations tabs, Schema Diff and the Monitoring dashboard, keep showing a discovered database that was withdrawn, and miss one that appeared, until the page is reloaded.
-
-Deferred by the CapRover auto-connect work.
-
-**Done when:** `useAllConnections` refreshes on the schedule `useConnectionManager` uses (`MANAGED_REFRESH_DEFAULT_FLOOR_MS`, `MANAGED_REFRESH_MAX_MS`, visible tabs only), and a hook test shows a withdrawn connection disappearing without a reload.
 
 ### D231. The auto-connect template cannot place its two apps on one manager node
 
