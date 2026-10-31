@@ -31,7 +31,7 @@ None of it is a GitHub issue.
 - [Drivers and connections](#drivers-and-connections) — D1-D413, U17 · 303
 - [Value interpolation](#value-interpolation) — V1
 - [Row editing](#row-editing) — R1–R3 · 3
-- [Studio UI and query execution](#studio-ui-and-query-execution) — X2-X25, U2-U186 · 172
+- [Studio UI and query execution](#studio-ui-and-query-execution) — X2-X25, U2-U187 · 173
 - [Dependencies](#dependencies) — P1-P12 · 10
 - [Documentation](#documentation) — DOC3-DOC35 · 31
 - [Release pipeline](#release-pipeline) — REL1-REL9 · 9
@@ -40,7 +40,7 @@ None of it is a GitHub issue.
 - [Security Phase 3 deferrals](#security-phase-3-deferrals) — K4-K8 · 5
 - [Security scanner triage](#security-scanner-triage) — SCAN1-SCAN2 · 2
 - [Agent M1 deferrals (#328)](#agent-m1-deferrals-328) — A2–A8 · 5
-- [Agent M2 deferrals (#329)](#agent-m2-deferrals-329) — B2-B158 · 87
+- [Agent M2 deferrals (#329)](#agent-m2-deferrals-329) — B2-B159 · 88
 - [Passkey deferrals (#785)](#passkey-deferrals-785) — PK1-PK9 · 8
 - [MCP server deferrals (#246)](#mcp-server-deferrals-246) — MCP1-MCP4 · 4
 - [Governance follow-ups](#governance-follow-ups) — GOV1-GOV30 · 30
@@ -6195,6 +6195,7 @@ Seen again 2026-10-31 on Apache Kafka 4.3.1 in a browser pass: on an agent-mode 
 Seen again 2026-10-31 on S3 (Silo `RELEASE.2026-09-16T00-00-00Z`) in a browser pass: on an agent-mode handle the provider answers the session, storage and slow-query readings with its own reason before anything is sent (`S3_AGENT_WITHHELD` in `src/lib/db/providers/objectstore/s3/agent-surface.ts`, thrown as a `QueryError`), each was recorded `class: "database-error"` and headed "The database refused the statement", and the three spent the run's repair attempts, so the table, index and performance readings were refused with `REPAIR_BUDGET_EXHAUSTED` and never reached their own reasons (run `arun_e81b0b828d484657a979a0b35b9f2403`).
 Seen again 2026-10-31 on Firestore (emulator `cloud-firestore-emulator` 1.22.0) in a browser pass: on an agent-mode handle the provider answers the session, slow-query, table, index, storage, overview and performance readings with its own reason before anything is sent (`FIRESTORE_AGENT_WITHHELD` in `src/lib/db/providers/document/firestore/agent-surface.ts`, thrown as a `QueryError`); an Operate run took the session, slow-query and table readings, each was recorded `class: "database-error"` and headed "The database refused the statement", and the three spent the run's repair attempts, so its next four `inspect_operations` calls were refused with `REPAIR_BUDGET_EXHAUSTED` and the run took no reading at all (run `arun_adbfa75f6fde448fb013144a6696fa6a`).
 Seen again 2026-10-31 on SNMP (Net-SNMP snmpd 5.9.4, the `docker/snmp` image) in a browser pass: on an agent-mode handle the provider answers the overview, performance, session, slow-query, table, index and storage readings with its own reason before anything is sent (`SNMP_AGENT_WITHHELD` in `src/lib/db/providers/network/snmp/agent-surface.ts`, thrown as a `QueryError`); an Operate run took the session, slow-query and storage readings, each was recorded `class: "database-error"` and headed "The database refused the statement", and the three spent the run's repair attempts, so the next two readings were refused with `REPAIR_BUDGET_EXHAUSTED` and never reached their own reasons (run `arun_b816f169df4344fb9b7fa304f82164b0`).
+Seen again 2026-10-31 on NETCONF (Netopeer2 2.8.7, the `docker/netconf` image) in a browser pass: an Operate run's session and slow-query readings, which the provider answers with its own reason before anything is sent (`SENTENCES.noSessions` and `SENTENCES.noMetrics` in `src/lib/db/providers/network/netconf/index.ts`), were recorded `class: "database-error"` and headed "The database refused the statement", and after those two the next three readings were refused with `REPAIR_BUDGET_EXHAUSTED` (run `arun_bb2f5ed16af74230899d9021479f16ac`).
 
 **Done when:** a panel the provider declines without sending a statement is recorded as not sent and headed "Refused before the database" with the provider's sentence as the detail, it does not count as a repair attempt, and a timeline test and an agent test pin both.
 
@@ -6233,6 +6234,7 @@ Seen again 2026-10-31 on RabbitMQ 4.3.6 in a browser pass: the picker offered Op
 Seen again 2026-10-31 on Apache Kafka 4.3.1 in a browser pass: the picker offered Optimize, Assess and Analyze, which the `kafkaread` family does not offer (`docs/providers/kafka.md` section 15.4), and Analyze was refused with the same sentence although investigation runs there.
 Seen again 2026-10-31 on Firestore (emulator `cloud-firestore-emulator` 1.22.0) in a browser pass: the picker offered Optimize, Assess and Analyze, which the `fsquery` family does not offer (`docs/providers/firestore.md` section 15.5), and Analyze was refused with the same sentence although investigation runs there.
 Seen again 2026-10-31 on SNMP (Net-SNMP snmpd 5.9.4, the `docker/snmp` image) in a browser pass: the picker offered Optimize, Assess and Analyze, which the `snmpget` family does not offer (`docs/providers/snmp.md` section 13.4), and Optimize was refused with the same sentence although investigation runs there.
+Seen again 2026-10-31 on NETCONF (Netopeer2 2.8.7, the `docker/netconf` image) in a browser pass: the picker offered Optimize, Assess and Analyze, which the `netconfrpc` family does not offer (`docs/providers/netconf.md` section 14.4), and Optimize was refused with the same sentence although investigation runs there.
 
 **Done when:** the refusal names the workflows the connection's statement language does offer, read from `AGENT_WORKFLOW_VARIANTS` rather than fixed text, the picker marks or hides a workflow that language has no variant for, and a test pins the sentence for `libredbkv`.
 
@@ -6287,6 +6289,7 @@ Seen again 2026-10-31 on S3 (Silo `RELEASE.2026-09-16T00-00-00Z`) in a browser p
 Seen again 2026-10-31 on Firestore (emulator `cloud-firestore-emulator` 1.22.0) in a browser pass: `db.collection("events").count()` over a collection of 201 documents, past the 200-row budget, was sent with `upTo` 201 and refused by Studio, never cut (`countOverRows` in `src/lib/db/providers/document/firestore/agent-metadata-read.ts`), yet the ledger recorded it `class: "database-error"`, it spent a repair attempt, and the rail headed it "The database refused the statement" over Studio's own sentence ("Read-only execution exceeded the row budget: the collection holds more than 200 documents ..."); the run's answer gave the other collections' counts and no word of the refusal (run `arun_64101bf5c8e240dcb621bc6db62202ad`).
 Seen again 2026-10-31 on SNMP (Net-SNMP snmpd 5.9.4, the `docker/snmp` image) in a browser pass: `walk ip`, `walk 1.3`, `walk 1.3.6.1.4.1` and `walk 1.3.6.1.4.1.8072`, each past the 200-row budget, are refused by Studio and never cut (`docs/providers/snmp.md` section 13.2), yet the ledger recorded each `class: "database-error"` and the rail headed it "The database refused the statement" over Studio's own sentence ("Read-only execution exceeded the row budget: 250 rows > 200 allowed"); the three in one run spent its repair attempts, so `walk 1.3.6.1.4.1.8072.1`, `walk 1.3.6.1.3`, a `next` and a `get` that followed were refused with `REPAIR_BUDGET_EXHAUSTED`, while the two withheld-module refusals in the same run were recorded `not-sent` and headed "Refused before the database" (runs `arun_6ec599725fb54a92a25f5649b56755ba`, `arun_a4b1de37c6554be9ae45eeeff5c35bd3`).
 The same misattribution for a declined operations panel is U159.
+Seen again 2026-10-31 on NETCONF (Netopeer2 2.8.7, the `docker/netconf` image) in a browser pass: a list past the 200-row budget and one past the request's own `limit` are refused by Studio and never cut, a path into a withheld node is refused before the data read is sent, and a schema request for a module the library does not list is refused before any read (`NETCONF_AGENT_FAILURE_SENTENCES` in `src/lib/db/providers/network/netconf/agent-read.ts`, `docs/providers/netconf.md` section 14.3), yet the ledger recorded each `class: "database-error"` and the rail headed it "The database refused the statement" over Studio's sentence ending "This is Studio's refusal, not the device's answer."; the two budget refusals used the run's repair attempts, so the third request was refused with `REPAIR_BUDGET_EXHAUSTED` (runs `arun_cf9408b3280f47b197b2587e10aa9861`, `arun_82bb0508b63c4ffc9c5302d9e57b3dfc`, `arun_3dc145fd3ed34e589ae2325ccdb83f5a`). A module withheld whole is refused as not sent, so the misattribution is the provider's error class for these four sentences, not the rail.
 
 **Done when:** a tenant refusal Studio makes is recorded and headed as refused before the read it guards, with the provider's sentence as the detail, it does not count as a repair attempt, and an agent test pins both.
 
@@ -6453,6 +6456,7 @@ Seen 2026-10-31 on Apache Kafka 4.3.1 in a browser pass (run `arun_b8f03ec6b4954
 Seen again 2026-10-31 on S3 (Silo `RELEASE.2026-09-16T00-00-00Z`) in a browser pass: `agentHealth` (`src/lib/db/providers/objectstore/s3/agent-surface.ts`) sends one ListBuckets to prove the server answers S3, yet its artifact holds `activeConnections` null, `databaseSize` set to Studio's reason and `cacheHitRatio` "N/A", none of which the server reported, under the same caption, and the Operate run answered "The health reading did not establish an overall up/healthy status" (run `arun_e81b0b828d484657a979a0b35b9f2403`).
 Seen again 2026-10-31 on Firestore (emulator `cloud-firestore-emulator` 1.22.0) in a browser pass: on an agent-mode handle `getHealth` (`src/lib/db/providers/document/firestore/index.ts`) sends nothing and rests on the probe that opened the handle, yet its artifact holds `activeConnections` null, `databaseSize` set to Studio's reason and `cacheHitRatio` "N/A", none of which the server reported, under the same caption, and an Operate run asked whether the database was up answered that the reading "does not establish whether the Firestore database is up or healthy" (run `arun_7ccd3f57a52140b3b897de5d897dbab4`).
 Seen again 2026-10-31 on SNMP (Net-SNMP snmpd 5.9.4, the `docker/snmp` image) in a browser pass: `getHealth` sends the console's Get of `sysDescr.0` and `sysUpTime.0` and the agent answered both, yet the artifact holds `activeConnections` null and `databaseSize` and `cacheHitRatio` set to Studio's reasons, so neither value the agent sent reaches the model, under the same caption, and the Operate run answered that "these database-level health measures are unavailable from this reading" (run `arun_b816f169df4344fb9b7fa304f82164b0`); the overview's reason no longer points the model at those two values (`SNMP_AGENT_WITHHELD.overview`).
+Seen again 2026-10-31 on NETCONF (Netopeer2 2.8.7, the `docker/netconf` image) in a browser pass: `getHealth` (`src/lib/db/providers/network/netconf/index.ts`) sends nothing and answers from the YANG library read when the handle opened, in 0 ms, yet its artifact holds `activeConnections` null, `databaseSize` "52 modules in the YANG library" and `cacheHitRatio` "unknown" under the caption that the reading says what the engine reported as it was taken, and the Operate run answered that the reading "does not establish that the NETCONF device is healthy or unhealthy" (run `arun_bb2f5ed16af74230899d9021479f16ac`).
 
 **Done when:** a health reading the provider takes only to prove the engine answered says so in a field the model and the rail read, without a type-id branch, and an operations test pins what the model's tool result says for it.
 
@@ -6482,6 +6486,16 @@ A plan-mode Operate run asked for interfaces, uptime, contact, the VACM access g
 Seen 2026-10-31 on SNMP (Net-SNMP snmpd 5.9.4, the `docker/snmp` image) in a browser pass (runs `arun_4994c20824f344fe9cccecbe213b59d4`, `arun_7514a255d5674b088901a7c7141da6c8`); nothing was executed, and the editor refuses `snmpwalk` (U177). Not checked on other engines that declare a `statementLanguage`.
 
 **Done when:** a plan-mode run of a prose deliverable is told the engine's `statementLanguage` wherever it declares one, or the section 13.3 claim is narrowed to the investigation workflow, with a plan-prompt test on an operations run for an engine that declares a label.
+
+### U187. A NETCONF node withheld only by its name chain is answered with another module's reason
+
+The withheld check matches a node by the chain of data-node names from where a withheld node is declared, without expanding `uses` (`docs/providers/netconf.md` section 14.3), and ietf-keystore's `central-asymmetric-key-certificate-ref-grouping` declares a leaf `certificate` at a grouping's root whose leafref path steps into ietf-keystore.
+So the one-name chain `certificate` is withheld with the kind `ietf-keystore`, and every element named `certificate` on the device is withheld with that kind and its reason, "the ietf-keystore module holds the device's private and symmetric keys".
+An agent read of `ietf-truststore:truststore` answered the bag `bv316-bag` with its `certificate` entry as `[withheld]` under that reason, the path read of `certificate=bv316-cert/cert-data` was refused naming `ietf-keystore`, and the run reported the truststore certificate as withheld "because the module holds the device's private and symmetric keys", although the entry is ietf-truststore's and only its `cert-data` leaf is marked `nacm:default-deny-all`.
+Withholding the entry errs toward withholding, as section 14.3 says; the reason is what is wrong, since it states a fact about this node that holds only for the node it was matched to.
+Seen 2026-10-31 on NETCONF (Netopeer2 2.8.7, the `docker/netconf` image) in a browser pass (runs `arun_1428f9a917f549ea9364961417ccc617`, `arun_82bb0508b63c4ffc9c5302d9e57b3dfc`).
+
+**Done when:** a node withheld because its name chain matches a withheld node declared elsewhere is answered with a reason that says so and names where the match was declared, never the matched node's own reason as a fact about it, in the warning, the path refusal and the rail, with a withheld-policy test on a grouping-root leaf whose name another module's list uses.
 
 ## Dependencies
 
@@ -8941,6 +8955,23 @@ Kept so that MCP access, and any widening of what agent mode reads on SNMP, are 
 Found 2026-10-31 when agent mode joined SNMP.
 
 **Done when:** a per-engine exposure ruling opens MCP for SNMP, an MCP surface that withholds the same modules by identifier prefix is designed and `MCP_EXPOSABLE.snmp` turns true for it, the pack declares its MCP facet (`src/lib/agent/languages/snmpget/mcp.ts`, registered in `AGENT_LANGUAGE_MCP_FACETS`) under the same table and withholding, and `MCP_STATEMENT_READ.snmp` is true, with tests that no MCP answer carries a community, a key or an instance of a withheld module; cited in `docs/AGENT.md`.
+
+### B159. NETCONF's agent reads withhold keys, password hashes and access rules, and it has no MCP surface
+
+Agent mode executes NETCONF reads under the `netconfrpc` request language, one JSON request per call: the console's read request (`get-config` on running, candidate and startup, `get-data` on operational and intended) or one module's YANG text (`get-schema`) (`docs/providers/netconf.md`, section 14).
+The boundary is the provider's structural closed table: `requests.ts` builds `get`, `get-config`, `get-data`, `get-schema` and `close-session` and no write, and the agent's client sends only the library read, `get-schema` and the data read, over a session opened for that read alone.
+NACM is measured, not relied on: on the Netopeer2 fixture a raw `edit-config` under the read-only account answers `access-denied` only because `docker/netconf/setup.sh` applies a read-only rule list.
+Values are the device's management data, so they are answered as text; withheld instead, decided before every read from the YANG modules the device serves, are the `ietf-keystore` and `ietf-netconf-acm` modules whole, every node a module marks `nacm:default-deny-all`, every leaf typed `crypt-hash`, the `private-key-type`, `key-type` and `password-type` choices of `ietf-crypto-types`, every leafref that may point at a withheld node, every unresolved leafref, every leaf whose type names a typedef no module the device serves declares, and every entry of a list keyed by a withheld leaf.
+A read whose modules cannot be read, or that serve more than the check's total, is refused, a path naming a withheld node or filtering on a withheld key is refused before it is sent, and a withheld node in an answer is `[withheld]` with its path and reason.
+On a handle of either agent profile the console, a source and the overview are refused with their reason.
+So the language offers the investigation and the operations workflow only.
+`MCP_EXPOSABLE.netconf` is false, and the language's MCP facet is null (`AGENT_LANGUAGE_MCP_FACETS` in `src/lib/agent/languages/mcp.ts`) with `MCP_STATEMENT_READ.netconf` false, so MCP `run_read_query` refuses a NETCONF connection, because no MCP surface that withholds the same nodes is designed yet.
+Matching is by the chain of data-node names from where a node is declared, without expanding `uses` or `augment`, so it errs toward withholding: two nodes with one name chain are both withheld whichever carries the mark.
+Kept so that MCP access, and any widening of what agent mode reads on NETCONF, are decisions of their own rather than side effects of agent mode joining.
+
+Found 2026-10-31 when agent mode joined NETCONF.
+
+**Done when:** a per-engine exposure ruling opens MCP for NETCONF, an MCP surface that withholds the same nodes from the device's own modules is designed and `MCP_EXPOSABLE.netconf` turns true for it, the pack declares its MCP facet (`src/lib/agent/languages/netconfrpc/mcp.ts`, registered in `AGENT_LANGUAGE_MCP_FACETS`) under the same table and withholding, and `MCP_STATEMENT_READ.netconf` is true, with tests that no MCP answer carries a key, a password hash, an access rule or a value of a `nacm:default-deny-all` node; cited in `docs/AGENT.md`.
 
 ## Passkey deferrals (#785)
 
