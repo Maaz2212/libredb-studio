@@ -37,7 +37,7 @@ provider — and it has a couple of distinct gaps too:
 
 | Aspect | PostgreSQL | SQL Server |
 |--------|------------|------------|
-| Pagination | `LIMIT … OFFSET` | `TOP n` (no offset) / `OFFSET m ROWS FETCH NEXT n` (auto-adds `ORDER BY`) |
+| Pagination | `LIMIT … OFFSET` | `TOP n` (no offset) / `OFFSET m ROWS FETCH NEXT n` (auto-adds `ORDER BY`); an ordered top-level set operation pages with `OFFSET 0 ROWS FETCH NEXT n ROWS ONLY` even with no offset ([3.2](#32-t-sql-pagination-top-and-offset--fetch)) |
 | Pool + timeouts | `min`/`max`/`idle`/`acquire` + `statement_timeout` | `min`/`max`/`idle` + `connectTimeout` (acquire) + **`requestTimeout` (query timeout) wired** |
 | `rowCount` | driver `rowCount` | **`rowsAffected[0]`** (real affected count for DML) |
 | Encryption | opt-in | **`encrypt: true` by default** (Azure-aware `trustServerCertificate`) |
@@ -92,9 +92,14 @@ explicit-`ssl` overrides and the [security caveat](#15-known-limitations--future
 ### 3.2 T-SQL pagination: `TOP` and `OFFSET … FETCH`
 
 `prepareQuery()` ([`mssql.ts`](../../src/lib/db/providers/sql/mssql.ts)) overrides the base. For a
-limit-less `SELECT`: with no offset it injects `TOP n` right after `SELECT [DISTINCT]`; with an
-offset it appends `OFFSET m ROWS FETCH NEXT n ROWS ONLY` — and because T-SQL requires an `ORDER BY`
-for `OFFSET … FETCH`, it injects `ORDER BY (SELECT NULL)` when the query has none.
+limit-less `SELECT`: with no offset it injects `TOP n` right after the outer `SELECT [DISTINCT]`;
+for a CTE, that is the `SELECT` after the complete CTE list. With an offset it appends `OFFSET m ROWS
+FETCH NEXT n ROWS ONLY` — and because T-SQL requires an `ORDER BY` for `OFFSET … FETCH`, it injects
+`ORDER BY (SELECT NULL)` when the outer query has none, as read by `hasResultOrder`.
+
+A top-level `UNION`, `UNION ALL`, `INTERSECT`, or `EXCEPT` is never given a `TOP`, which would bound
+only its first arm. With an outer `ORDER BY` it takes the appending branch, at offset 0 as well
+(`… ORDER BY id OFFSET 0 ROWS FETCH NEXT n ROWS ONLY`). Any other set operation declines (see below).
 
 A `limit` or an `offset` that is not a non-negative safe integer is refused with a `QueryError` before either branch runs, by the check the shared limiter runs first (`assertRowBounds` in [`query-limiter.ts`](../../src/lib/db/utils/query-limiter.ts)).
 
@@ -175,16 +180,21 @@ bounds a read behind a leading nested comment (`/* a /* b */ x */ SELECT name FR
 write a nested comment hid inside a CTE list, and declines where the comment carries one opener too
 many and therefore never closes. Pinned in `tests/integration/db/mssql-provider.test.ts`.
 
-`prepareQuery` **declines** rather than splicing in two cases, reporting `wasLimited: false` and
+`prepareQuery` **declines** rather than splicing in these cases, reporting `wasLimited: false` and
 returning the statement untouched. It never reports a limit while handing back the statement unchanged.
 
-- **No leading `SELECT`** — with no offset, a CTE, whose `TOP` belongs to the trailing `SELECT` that
-  finding would need a parser. (With an offset a CTE takes the `OFFSET … FETCH` branch, which appends
-  and so is genuinely bounded.)
+- **No readable outer `SELECT`** — a malformed CTE or a statement rooted in parentheses has no safe
+  insertion point and is returned unchanged with `wasLimited: false`.
 - **A `TOP` already at the insertion point** — the statement is bounded but the shared already-bounded
   probe missed it, because that probe wants literal whitespace between `SELECT` and `TOP`, which both a
   comment (`SELECT/* c */TOP 10 …`) and a `DISTINCT` defeat. Splicing would emit `SELECT TOP n TOP 10`
   and a syntax error.
+- **A set operation without an outer `ORDER BY`** — there is nothing to page on, `ORDER BY (SELECT
+  NULL)` is not allowed there, and a derived-table wrapper would need every first-arm column named and
+  distinct (Msg 8155).
+- **A set operation ending in `FOR JSON`, `FOR XML`, or `OPTION (…)`** — those clauses must stay last,
+  so nothing can be appended after them.
+- **A set operation whose first arm has `TOP`** — a page beside it is refused (Msg 10741).
 - **A T-SQL page at the end of the statement** (`… ORDER BY id OFFSET 10 ROWS`) — a bound the shared
   probes do not recognise, and a clause beside it is a rejected statement.
 - **An end that may not be cut, in a statement mentioning `OFFSET` or `FETCH`** — the already-bounded
@@ -1472,7 +1482,7 @@ render those words and send an operation SQL Server declares (#496).
 | `createTable` | declared, see [Create Table form](#create-table-form) |
 | `supportsInlineRowEdit` | `true` — `UPDATE t SET c = v WHERE pk = v` is core T-SQL DML |
 | `supportsTestDataGeneration` | `true` - the row menus offer Generate Test Data on tables, which writes one multi-row `INSERT INTO ... VALUES` |
-| `supportsResultPagination` | `true` — `OFFSET m ROWS FETCH NEXT n ROWS ONLY`, built by this provider's own `prepareQuery` override. Page one is `SELECT TOP n`, so the two pages are structurally different statements, and page two carries the `ORDER BY (SELECT NULL)` T-SQL demands before `OFFSET` — which promises nothing about order (#816) |
+| `supportsResultPagination` | `true` — `OFFSET m ROWS FETCH NEXT n ROWS ONLY`, built by this provider's own `prepareQuery` override. Page one is `SELECT TOP n` (an ordered top-level set operation is the exception: its page one is already `OFFSET 0 ROWS FETCH NEXT n ROWS ONLY`, see [3.2](#32-t-sql-pagination-top-and-offset--fetch)), so the two pages are structurally different statements, and page two carries the `ORDER BY (SELECT NULL)` T-SQL demands before `OFFSET` — which promises nothing about order (#816) |
 | `supportsTransactions` | `true` — the `mssql` package's `Transaction` over one held pool connection, so the trio and the SANDBOX toggle are offered (#464) |
 | `declaresForeignKeys` | `true` — inherited from the base capabilities; read from `sys.foreign_keys`, so an empty list is about the schema or the role, not the engine |
 | `supportsMaintenance` | `true` |
