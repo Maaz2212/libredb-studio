@@ -434,6 +434,32 @@ describe("the posture on Google Cloud Firestore", () => {
   });
 });
 
+describe("the posture on SNMP", () => {
+  const posture = agentPosture({ mode: "agent", engine: "snmp", engineLabel: "SNMP", handover: false });
+
+  test("names exactly what the agent reads: the device's values through four named commands, never a write", () => {
+    expect(posture.qualifier).toBe(
+      `${STATEMENT_BUDGETS.maxResultRows} rows and ${STATEMENT_BUDGETS.statementTimeoutMs / 1000} s per read, over a client that sends only Get, GetNext and GetBulk, with the SNMP security modules withheld`,
+    );
+    expect(posture.body).toContain(
+      "each one of the console's four commands, get, next, walk and table, and answers the device's values as the console renders them",
+    );
+    expect(posture.body).toContain("Studio's agent client holds only the Get, GetNext and GetBulk requests");
+    expect(posture.body).not.toMatch(/metadata only|those three/);
+  });
+
+  test("names every withheld module, and why, and counts none of them", () => {
+    expect(posture.body).toContain(
+      "Withheld, because they hold community strings, user names, keys and access rules, are SNMP-TARGET-MIB, SNMP-NOTIFICATION-MIB, SNMP-PROXY-MIB, SNMP-USER-BASED-SM-MIB, SNMP-VIEW-BASED-ACM-MIB, SNMP-COMMUNITY-MIB, SNMP-SSH-TM-MIB, SNMP-TSM-MIB, SNMP-TLS-TM-MIB, SNMP-USM-DH-OBJECTS-MIB and Net-SNMP's NET-SNMP-VACM-MIB;",
+    );
+    expect(posture.body).toContain(
+      "a walk that covers one steps over it and names it, and a walk inside one is refused",
+    );
+    expect(posture.body).not.toMatch(/\b(?:Six|six|Eleven|eleven) modules\b/);
+    expect(posture.body).toContain("The community never reaches an answer.");
+  });
+});
+
 describe("autoExecuteTerms", () => {
   // No default: a caller that names no language would be shown SQL's terms on whatever engine it is on, SQL's
   // read-only session included, on an engine that has none.

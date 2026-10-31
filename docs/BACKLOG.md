@@ -31,7 +31,7 @@ None of it is a GitHub issue.
 - [Drivers and connections](#drivers-and-connections) — D1-D413, U17 · 303
 - [Value interpolation](#value-interpolation) — V1
 - [Row editing](#row-editing) — R1–R3 · 3
-- [Studio UI and query execution](#studio-ui-and-query-execution) — X2-X25, U2-U184 · 170
+- [Studio UI and query execution](#studio-ui-and-query-execution) — X2-X25, U2-U186 · 172
 - [Dependencies](#dependencies) — P1-P12 · 10
 - [Documentation](#documentation) — DOC3-DOC35 · 31
 - [Release pipeline](#release-pipeline) — REL1-REL9 · 9
@@ -40,7 +40,7 @@ None of it is a GitHub issue.
 - [Security Phase 3 deferrals](#security-phase-3-deferrals) — K4-K8 · 5
 - [Security scanner triage](#security-scanner-triage) — SCAN1-SCAN2 · 2
 - [Agent M1 deferrals (#328)](#agent-m1-deferrals-328) — A2–A8 · 5
-- [Agent M2 deferrals (#329)](#agent-m2-deferrals-329) — B2-B157 · 87
+- [Agent M2 deferrals (#329)](#agent-m2-deferrals-329) — B2-B158 · 87
 - [Passkey deferrals (#785)](#passkey-deferrals-785) — PK1-PK9 · 8
 - [MCP server deferrals (#246)](#mcp-server-deferrals-246) — MCP1-MCP4 · 4
 - [Governance follow-ups](#governance-follow-ups) — GOV1-GOV30 · 30
@@ -6194,6 +6194,7 @@ Seen again 2026-10-30 on etcd v3.7.2 in a browser pass: an Operate run on a read
 Seen again 2026-10-31 on Apache Kafka 4.3.1 in a browser pass: on an agent-mode handle the provider answers the session, slow-query, table, index, storage and overview readings with its own reason before anything is sent (`KAFKA_AGENT_WITHHELD` in `src/lib/db/providers/stream/kafka/agent-surface.ts`, thrown as a `QueryError`), each was recorded `class: "database-error"` and headed "The database refused the statement", and the first three spent the run's three repair attempts, so in one Operate run the health reading, the only one Kafka takes, was never reached and the run ended `succeeded` with "Run did not answer" (runs `arun_f243ffd8e7a243ec828f079675224d66`, `arun_b8f03ec6b4954c0690bec30d223f6502`).
 Seen again 2026-10-31 on S3 (Silo `RELEASE.2026-09-16T00-00-00Z`) in a browser pass: on an agent-mode handle the provider answers the session, storage and slow-query readings with its own reason before anything is sent (`S3_AGENT_WITHHELD` in `src/lib/db/providers/objectstore/s3/agent-surface.ts`, thrown as a `QueryError`), each was recorded `class: "database-error"` and headed "The database refused the statement", and the three spent the run's repair attempts, so the table, index and performance readings were refused with `REPAIR_BUDGET_EXHAUSTED` and never reached their own reasons (run `arun_e81b0b828d484657a979a0b35b9f2403`).
 Seen again 2026-10-31 on Firestore (emulator `cloud-firestore-emulator` 1.22.0) in a browser pass: on an agent-mode handle the provider answers the session, slow-query, table, index, storage, overview and performance readings with its own reason before anything is sent (`FIRESTORE_AGENT_WITHHELD` in `src/lib/db/providers/document/firestore/agent-surface.ts`, thrown as a `QueryError`); an Operate run took the session, slow-query and table readings, each was recorded `class: "database-error"` and headed "The database refused the statement", and the three spent the run's repair attempts, so its next four `inspect_operations` calls were refused with `REPAIR_BUDGET_EXHAUSTED` and the run took no reading at all (run `arun_adbfa75f6fde448fb013144a6696fa6a`).
+Seen again 2026-10-31 on SNMP (Net-SNMP snmpd 5.9.4, the `docker/snmp` image) in a browser pass: on an agent-mode handle the provider answers the overview, performance, session, slow-query, table, index and storage readings with its own reason before anything is sent (`SNMP_AGENT_WITHHELD` in `src/lib/db/providers/network/snmp/agent-surface.ts`, thrown as a `QueryError`); an Operate run took the session, slow-query and storage readings, each was recorded `class: "database-error"` and headed "The database refused the statement", and the three spent the run's repair attempts, so the next two readings were refused with `REPAIR_BUDGET_EXHAUSTED` and never reached their own reasons (run `arun_b816f169df4344fb9b7fa304f82164b0`).
 
 **Done when:** a panel the provider declines without sending a statement is recorded as not sent and headed "Refused before the database" with the provider's sentence as the detail, it does not count as a repair attempt, and a timeline test and an agent test pin both.
 
@@ -6231,6 +6232,7 @@ Seen again 2026-10-30 on etcd v3.7.2 in a browser pass: the picker offered Optim
 Seen again 2026-10-31 on RabbitMQ 4.3.6 in a browser pass: the picker offered Optimize, Assess and Analyze, which the `rabbitread` family does not offer (`docs/providers/rabbitmq.md` section 17.4), and Analyze was refused with the same sentence although investigation runs there.
 Seen again 2026-10-31 on Apache Kafka 4.3.1 in a browser pass: the picker offered Optimize, Assess and Analyze, which the `kafkaread` family does not offer (`docs/providers/kafka.md` section 15.4), and Analyze was refused with the same sentence although investigation runs there.
 Seen again 2026-10-31 on Firestore (emulator `cloud-firestore-emulator` 1.22.0) in a browser pass: the picker offered Optimize, Assess and Analyze, which the `fsquery` family does not offer (`docs/providers/firestore.md` section 15.5), and Analyze was refused with the same sentence although investigation runs there.
+Seen again 2026-10-31 on SNMP (Net-SNMP snmpd 5.9.4, the `docker/snmp` image) in a browser pass: the picker offered Optimize, Assess and Analyze, which the `snmpget` family does not offer (`docs/providers/snmp.md` section 13.4), and Optimize was refused with the same sentence although investigation runs there.
 
 **Done when:** the refusal names the workflows the connection's statement language does offer, read from `AGENT_WORKFLOW_VARIANTS` rather than fixed text, the picker marks or hides a workflow that language has no variant for, and a test pins the sentence for `libredbkv`.
 
@@ -6244,6 +6246,7 @@ Seen again 2026-10-30 on Weaviate 1.40.2, after the Analyze refusal (U162).
 Seen again 2026-10-30 on Neo4j Enterprise 5.26.31, after the Optimize refusal (U162).
 Seen again 2026-10-30 on etcd v3.7.2, after the Optimize refusal (U162).
 Seen again 2026-10-31 on RabbitMQ 4.3.6, after the Analyze refusal (U162).
+Seen again 2026-10-31 on SNMP (Net-SNMP snmpd 5.9.4), after the Optimize refusal (U162).
 
 **Done when:** a refused start does not announce the stored conversation as ended by a reload (it keeps the conversation, or says the start was refused), with a hook test that refuses a start after a finished run.
 
@@ -6282,6 +6285,7 @@ Seen 2026-10-30 on Weaviate 1.40.2 in a browser pass (run `arun_d7928d6c386d47ec
 Seen again 2026-10-31 on RabbitMQ 4.3.6 in a browser pass: an agent read request naming a classic or a quorum queue is refused by Studio's stream-only type check after one management GET and before any AMQP frame (`docs/providers/rabbitmq.md` section 17.1), yet the ledger recorded each as `class: "database-error"`, so each spent a repair attempt (`RepairLedger` in `src/lib/agent/repair-ledger.ts`), and the rail headed it "The database refused the statement" over Studio's own sentence ("\"jobs-classic\" is a classic queue; Studio reads streams only, because reading a queue removes messages.") (runs `arun_3060ac4c7f324f6180ff1762e3679cb8`, `arun_79922a5829284b4ebfcbf93460ad9193`).
 Seen again 2026-10-31 on S3 (Silo `RELEASE.2026-09-16T00-00-00Z`) in a browser pass: `aws s3 ls s3://bulk --recursive --summarize` over a bucket of 201 objects, past the 200-row budget, is refused by Studio after the first page and never cut (`summaryOverRows` in `src/lib/db/providers/objectstore/s3/agent-metadata-read.ts`), yet the ledger recorded it `class: "database-error"` and the rail headed it "The database refused the statement" over Studio's own sentence ("Read-only execution exceeded the row budget: the bucket holds more than 200 objects ...") (run `arun_d7d644cd62fd4ab5ac317e8ab4d5464d`); a bucket of exactly 200 was counted.
 Seen again 2026-10-31 on Firestore (emulator `cloud-firestore-emulator` 1.22.0) in a browser pass: `db.collection("events").count()` over a collection of 201 documents, past the 200-row budget, was sent with `upTo` 201 and refused by Studio, never cut (`countOverRows` in `src/lib/db/providers/document/firestore/agent-metadata-read.ts`), yet the ledger recorded it `class: "database-error"`, it spent a repair attempt, and the rail headed it "The database refused the statement" over Studio's own sentence ("Read-only execution exceeded the row budget: the collection holds more than 200 documents ..."); the run's answer gave the other collections' counts and no word of the refusal (run `arun_64101bf5c8e240dcb621bc6db62202ad`).
+Seen again 2026-10-31 on SNMP (Net-SNMP snmpd 5.9.4, the `docker/snmp` image) in a browser pass: `walk ip`, `walk 1.3`, `walk 1.3.6.1.4.1` and `walk 1.3.6.1.4.1.8072`, each past the 200-row budget, are refused by Studio and never cut (`docs/providers/snmp.md` section 13.2), yet the ledger recorded each `class: "database-error"` and the rail headed it "The database refused the statement" over Studio's own sentence ("Read-only execution exceeded the row budget: 250 rows > 200 allowed"); the three in one run spent its repair attempts, so `walk 1.3.6.1.4.1.8072.1`, `walk 1.3.6.1.3`, a `next` and a `get` that followed were refused with `REPAIR_BUDGET_EXHAUSTED`, while the two withheld-module refusals in the same run were recorded `not-sent` and headed "Refused before the database" (runs `arun_6ec599725fb54a92a25f5649b56755ba`, `arun_a4b1de37c6554be9ae45eeeff5c35bd3`).
 The same misattribution for a declined operations panel is U159.
 
 **Done when:** a tenant refusal Studio makes is recorded and headed as refused before the read it guards, with the provider's sentence as the detail, it does not count as a repair attempt, and an agent test pins both.
@@ -6390,6 +6394,7 @@ Every statement an agent run drafts carries Apply to editor in the rail, includi
 Applied and run, the editor answers "shards is not a command Studio runs on Oxia: it runs get, list (ls) and range-scan (scan).", so the button hands the user a command that cannot run where it is handed.
 The other two agent reads, `get <key>` and `list`, run in the editor, where `list` lists the key names agent mode withholds; that is the editor's path and expected.
 Seen 2026-10-31 on Oxia 0.18.0 in a browser pass (runs `arun_ad725d1c2ca14394983f955398cc9d4f`, `arun_a281c29cd2bd481e91b49ffae2008dcf`).
+Seen again 2026-10-31 on SNMP (Net-SNMP snmpd 5.9.4, the `docker/snmp` image) in a browser pass: a plan-mode Operate run drafted seven Net-SNMP tool commands such as `snmpwalk $SNMP_OPTS "$AGENT" .1.3.6.1.2.1.2.2.1.7` (U186), offered with Apply to editor, and the editor refused one when run: "`snmpwalk` is not a command: this provider reads with get, next, walk and table" (run `arun_4994c20824f344fe9cccecbe213b59d4`); the plan-mode investigation draft `table ifEntry` applied and ran.
 
 **Done when:** Apply to editor is offered only for a drafted statement the connection's editor grammar admits, or says why it is not, decided from the provider's editor parser or a contract row and not a type-id branch, with an AgentRail test on an Oxia `shards` step.
 
@@ -6447,6 +6452,7 @@ An Operate run asked whether the broker was up took that reading and answered "B
 Seen 2026-10-31 on Apache Kafka 4.3.1 in a browser pass (run `arun_b8f03ec6b4954c0690bec30d223f6502`).
 Seen again 2026-10-31 on S3 (Silo `RELEASE.2026-09-16T00-00-00Z`) in a browser pass: `agentHealth` (`src/lib/db/providers/objectstore/s3/agent-surface.ts`) sends one ListBuckets to prove the server answers S3, yet its artifact holds `activeConnections` null, `databaseSize` set to Studio's reason and `cacheHitRatio` "N/A", none of which the server reported, under the same caption, and the Operate run answered "The health reading did not establish an overall up/healthy status" (run `arun_e81b0b828d484657a979a0b35b9f2403`).
 Seen again 2026-10-31 on Firestore (emulator `cloud-firestore-emulator` 1.22.0) in a browser pass: on an agent-mode handle `getHealth` (`src/lib/db/providers/document/firestore/index.ts`) sends nothing and rests on the probe that opened the handle, yet its artifact holds `activeConnections` null, `databaseSize` set to Studio's reason and `cacheHitRatio` "N/A", none of which the server reported, under the same caption, and an Operate run asked whether the database was up answered that the reading "does not establish whether the Firestore database is up or healthy" (run `arun_7ccd3f57a52140b3b897de5d897dbab4`).
+Seen again 2026-10-31 on SNMP (Net-SNMP snmpd 5.9.4, the `docker/snmp` image) in a browser pass: `getHealth` sends the console's Get of `sysDescr.0` and `sysUpTime.0` and the agent answered both, yet the artifact holds `activeConnections` null and `databaseSize` and `cacheHitRatio` set to Studio's reasons, so neither value the agent sent reaches the model, under the same caption, and the Operate run answered that "these database-level health measures are unavailable from this reading" (run `arun_b816f169df4344fb9b7fa304f82164b0`); the overview's reason no longer points the model at those two values (`SNMP_AGENT_WITHHELD.overview`).
 
 **Done when:** a health reading the provider takes only to prove the engine answered says so in a field the model and the rail read, without a type-id branch, and an operations test pins what the model's tool result says for it.
 
@@ -6458,6 +6464,24 @@ Firestore is the one engine that charges the allowance, and its id pages and doc
 Recorded 2026-10-31 in `tests/fixtures/firestore/1.22.0/agent-boundary/boundary.json`, the step that spends the allowance's last unit; a browser pass cannot reach it, since the run allowance is the constant `AGENT_RUN_READ_ALLOWANCE` (10,000) with no setting to lower it.
 
 **Done when:** a one-unit charge reads "1 billed read", with a case in `tests/unit/db/read-allowance.test.ts`.
+
+### U185. The SNMP agent grounding tells the model no command can address the inventory's names, which its rules tell it to use
+
+`SnmpProvider.getCapabilities()` declares `tablesAreDerivedGroupings: true` (its reason: a conceptual table is assembled by walking columns, so a count menu must not be offered), and `composedKinds` in `src/lib/agent/context-snapshot.ts` carries that declaration onto both kinds, so the agent grounding on SNMP opens with "The table below are groupings derived by this server from a bounded scan, not object names anybody gave: no statement or command can be addressed to one of these names." and the same line for `scalars`.
+On SNMP that is false three ways: the inventory comes from the bundled MIB modules, not a scan; `ifTable`, `ifEntry`, `system` and the column names resolve, and `walk ifTable` and `table ifEntry` run; and the `snmpget` rule beside it says "Name an object as the inventory names it" (`src/lib/agent/languages/snmpget/server.ts`).
+The plural label reads "table" because `objectKinds` uses the kind id as `labelPlural`.
+Seen 2026-10-31 on SNMP (Net-SNMP snmpd 5.9.4, the `docker/snmp` image) in a browser pass, in the snapshot of run `arun_436f35579fb44e99beb64eac056f02e0` rendered through `packContextForTask`; the models used the names anyway (`table ifEntry`, `walk hrProcessorLoad`).
+
+**Done when:** the derived-groupings note is said only where the grouping's names cannot be addressed, decided from a declaration the provider makes about addressability rather than about counting and not a type-id branch, SNMP's kinds read "tables" and "scalar groups", and a context-snapshot test pins the SNMP grounding without the note.
+
+### U186. Plan mode on an operations workflow is never told the engine's statement language
+
+`planningStatementContract` in `src/lib/agent/investigation.ts` adds "Write it in" the provider's `statementLanguage` label, but `planningProseRules` and `planningProseRulesUngrounded`, the plan-mode rules of a prose deliverable such as the operations workflow, never say it, and the agent-mode `languageSentence` is not used in plan mode.
+On SNMP that label is where plan mode learns there is no Net-SNMP tool syntax and that the security and target modules are never drafted, and `docs/providers/snmp.md` section 13.3 says the withheld modules' reason reaches plan mode through it.
+A plan-mode Operate run asked for interfaces, uptime, contact, the VACM access groups and the community table drafted seven `snmpwalk $SNMP_OPTS "$AGENT" ...` and `snmpget ...` commands, three of them into `SNMP-VIEW-BASED-ACM-MIB` (1.3.6.1.6.3.16) and `SNMP-COMMUNITY-MIB` (1.3.6.1.6.3.18), and said only that the community table "can be sensitive"; the same request on the investigation workflow drafted nothing and named both modules as withheld.
+Seen 2026-10-31 on SNMP (Net-SNMP snmpd 5.9.4, the `docker/snmp` image) in a browser pass (runs `arun_4994c20824f344fe9cccecbe213b59d4`, `arun_7514a255d5674b088901a7c7141da6c8`); nothing was executed, and the editor refuses `snmpwalk` (U177). Not checked on other engines that declare a `statementLanguage`.
+
+**Done when:** a plan-mode run of a prose deliverable is told the engine's `statementLanguage` wherever it declares one, or the section 13.3 claim is narrowed to the investigation workflow, with a plan-prompt test on an operations run for an engine that declares a label.
 
 ## Dependencies
 
@@ -8678,15 +8702,6 @@ Found 2026-10-27 while designing read-only agent and MCP execution for every pro
 
 **Done when:** the prerequisite hardening has landed, the provider implements `queryReadOnly` over a closed read-operation table with a test that pins it, and joins `AGENT_EXECUTION_ENGINES`; MCP stays closed until a per-engine exposure ruling opens it; cited in `docs/AGENT.md`.
 
-### B139. SNMP has no agent execution and no MCP surface
-
-`MCP_EXPOSABLE.snmp` is false and the provider implements no `queryReadOnly`, so agent execution and every MCP tool refuse an SNMP connection.
-The catalog a plan run grounds on is in place: `listObjects`, `describeObject` and `describeObjects` answer from the bundled MIB modules and `getHealth` reads the agent (`docs/providers/snmp.md` section 6).
-
-Found 2026-10-27 while designing read-only agent and MCP execution for every provider.
-
-**Done when:** the provider implements `queryReadOnly` over its closed four-command grammar and the `valve.ts` Read Class check, with a test that pins both, and joins `AGENT_EXECUTION_ENGINES`; MCP stays closed until a per-engine exposure ruling opens it; cited in `docs/AGENT.md`.
-
 ### B140. ClickHouse is offered profile_table and compare_plans with nothing to read them by
 
 Agent mode executes statements on ClickHouse, and its engine overlay (`src/lib/agent/languages/sql/engines/clickhouse.ts`) supplies the catalog read and the estimating plan only.
@@ -8909,6 +8924,23 @@ Kept so that record exposure, group and config exposure, a bounded fetch and MCP
 Found 2026-10-31 when agent mode joined Apache Kafka.
 
 **Done when:** the owner rules on which record values, groups and configs agent mode may read on Kafka and how they are redacted, a fetch on the agent path is bounded by a decompressed-size cap or an isolated process with memory and termination limits, with compressed-bomb tests, the `kafkaread` pack offers the workflows that ruling opens, a per-engine exposure ruling opens MCP statement read for Kafka, the pack declares its MCP facet (`src/lib/agent/languages/kafkaread/mcp.ts`, registered in `AGENT_LANGUAGE_MCP_FACETS`) under the same table and projection, and `MCP_STATEMENT_READ.kafka` is true, with tests that every MCP answer carries no record value; cited in `docs/AGENT.md`.
+
+### B158. SNMP's agent reads withhold the security and target modules, and it has no MCP surface
+
+Agent mode executes SNMP reads under the `snmpget` statement language, one of the console's four commands per call, `get`, `next`, `walk` and `table`, read with the console's own parser and resolver (`docs/providers/snmp.md`, section 13).
+The boundary is the provider's structural closed table: the agent's client holds the Get, GetNext and GetBulk requests alone, RFC 3411's Read Class, over an exchange whose valve parses every outgoing datagram and refuses any other PDU, so no Set or notification can be sent on the agent path, and a GetBulk keeps the documented max-repetitions cap of 50 and a request the documented bound of 400 identifiers.
+A v2c community cannot be proved read-only from the client: measured on the Net-SNMP 5.9.4 fixture, a raw Set with its read-only community is refused `noAccess`, but the rights of a community live in the access control tables, which are among the withheld modules, so no credential is the boundary.
+Values are the device's own management readings, so they are answered, rendered as the console renders them; withheld instead, by the prefix of the resolved identifier, are `SNMP-TARGET-MIB` (1.3.6.1.6.3.12), `SNMP-NOTIFICATION-MIB` (1.3.6.1.6.3.13), `SNMP-PROXY-MIB` (1.3.6.1.6.3.14), `SNMP-USER-BASED-SM-MIB` (1.3.6.1.6.3.15), `SNMP-VIEW-BASED-ACM-MIB` (1.3.6.1.6.3.16) and `SNMP-COMMUNITY-MIB` (1.3.6.1.6.3.18), the transport security modules `SNMP-SSH-TM-MIB` (1.3.6.1.2.1.189), `SNMP-TSM-MIB` (1.3.6.1.2.1.190) and `SNMP-TLS-TM-MIB` (1.3.6.1.2.1.198), `SNMP-USM-DH-OBJECTS-MIB` (1.3.6.1.3.101) and Net-SNMP's `NET-SNMP-VACM-MIB` (1.3.6.1.4.1.8072.1.9), whose values and instance suffixes can carry community strings, user names, keys, security names and group names: an identifier inside one is never sent, an answer landing inside one is a `withheld` row with no value or instance, a walk or table covering one steps over it, so no request starts inside it, and warns it by name, and a walk or table inside one is refused before anything is sent.
+Every other identifier under 1.3.6.1.6.3, the engine and MPD objects among them, is read, so `walk 1.3.6.1.6.3` is admitted and steps over the six framework modules.
+On a handle of either agent profile the console is refused, and the overview, performance, storage, session, slow-query, table and index readings answer their reason rather than an empty reading; health is the console's own Get of `sysDescr.0` and `sysUpTime.0`.
+So the language offers the investigation and the operations workflow only: query optimization and database assessment need a plan and a profile an agent does not have, and the data analysis's tools assume a store of records.
+`MCP_EXPOSABLE.snmp` is false, and the language's MCP facet is null (`AGENT_LANGUAGE_MCP_FACETS` in `src/lib/agent/languages/mcp.ts`) with `MCP_STATEMENT_READ.snmp` false, so MCP `run_read_query` refuses an SNMP connection, because no MCP surface that withholds the security and target modules is designed yet.
+SNMPv3 has no connection form yet, so no v3 key or passphrase reaches the agent path today; when the form lands, the agent path is to be re-measured with it.
+Kept so that MCP access, and any widening of what agent mode reads on SNMP, are decisions of their own rather than side effects of agent mode joining.
+
+Found 2026-10-31 when agent mode joined SNMP.
+
+**Done when:** a per-engine exposure ruling opens MCP for SNMP, an MCP surface that withholds the same modules by identifier prefix is designed and `MCP_EXPOSABLE.snmp` turns true for it, the pack declares its MCP facet (`src/lib/agent/languages/snmpget/mcp.ts`, registered in `AGENT_LANGUAGE_MCP_FACETS`) under the same table and withholding, and `MCP_STATEMENT_READ.snmp` is true, with tests that no MCP answer carries a community, a key or an instance of a withheld module; cited in `docs/AGENT.md`.
 
 ## Passkey deferrals (#785)
 
