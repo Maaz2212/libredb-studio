@@ -31,7 +31,7 @@ None of it is a GitHub issue.
 - [Drivers and connections](#drivers-and-connections) — D1-D413, U17 · 303
 - [Value interpolation](#value-interpolation) — V1
 - [Row editing](#row-editing) — R1–R3 · 3
-- [Studio UI and query execution](#studio-ui-and-query-execution) — X2-X25, U2-U181 · 167
+- [Studio UI and query execution](#studio-ui-and-query-execution) — X2-X25, U2-U183 · 169
 - [Dependencies](#dependencies) — P1-P12 · 10
 - [Documentation](#documentation) — DOC3-DOC35 · 31
 - [Release pipeline](#release-pipeline) — REL1-REL9 · 9
@@ -40,7 +40,7 @@ None of it is a GitHub issue.
 - [Security Phase 3 deferrals](#security-phase-3-deferrals) — K4-K8 · 5
 - [Security scanner triage](#security-scanner-triage) — SCAN1-SCAN2 · 2
 - [Agent M1 deferrals (#328)](#agent-m1-deferrals-328) — A2–A8 · 5
-- [Agent M2 deferrals (#329)](#agent-m2-deferrals-329) — B2-B156 · 86
+- [Agent M2 deferrals (#329)](#agent-m2-deferrals-329) — B2-B157 · 87
 - [Passkey deferrals (#785)](#passkey-deferrals-785) — PK1-PK9 · 8
 - [MCP server deferrals (#246)](#mcp-server-deferrals-246) — MCP1-MCP4 · 4
 - [Governance follow-ups](#governance-follow-ups) — GOV1-GOV30 · 30
@@ -6189,6 +6189,7 @@ The provider declined each one with its own sentence ("This engine family publis
 The three refusals also used the run's three repair attempts, so the next call was refused with `REPAIR_BUDGET_EXHAUSTED` and the run stopped drafting.
 Seen 2026-10-30 in a browser pass on Apache Cassandra 5.0.9; not checked on the other engines whose providers decline these panels.
 Seen again 2026-10-30 on etcd v3.7.2 in a browser pass: an Operate run on a reader and one on `root` called `inspect_operations` for the table statistics, which the provider declines on an agent-mode handle before anything is sent ("Agent mode on etcd reads metadata only, and key names count as stored values, so no key, key prefix or key range is listed to it."), and the rail headed it "The database refused the statement"; the `root` run showed one repair attempt spent (runs `arun_991c5b8f9b6f4bdfb1076e7ddbd8b429`, `arun_3c3832b0df50402e8cdd7ad992db7728`).
+Seen again 2026-10-31 on Apache Kafka 4.3.1 in a browser pass: on an agent-mode handle the provider answers the session, slow-query, table, index, storage and overview readings with its own reason before anything is sent (`KAFKA_AGENT_WITHHELD` in `src/lib/db/providers/stream/kafka/agent-surface.ts`, thrown as a `QueryError`), each was recorded `class: "database-error"` and headed "The database refused the statement", and the first three spent the run's three repair attempts, so in one Operate run the health reading, the only one Kafka takes, was never reached and the run ended `succeeded` with "Run did not answer" (runs `arun_f243ffd8e7a243ec828f079675224d66`, `arun_b8f03ec6b4954c0690bec30d223f6502`).
 
 **Done when:** a panel the provider declines without sending a statement is recorded as not sent and headed "Refused before the database" with the provider's sentence as the detail, it does not count as a repair attempt, and a timeline test and an agent test pin both.
 
@@ -6207,6 +6208,7 @@ On Druid the snapshot holds the datasources and the `INFORMATION_SCHEMA` and `sy
 The sidebar beside it said "Datasources 1".
 Seen 2026-10-30 on Apache Druid 37.0.0 in a browser pass; not checked on other engines whose schema lists system tables.
 Seen again 2026-10-30 on etcd v3.7.2 in a browser pass: the engine's noun is "key prefixes", and on an agent-mode handle the snapshot holds no key prefix at all, only members, leases, users and roles, so a reader saw "Schema snapshot ctx_6379 · 2 key prefixes" over one lease and one member, and `root` "10 key prefixes" over one lease, one member, five users and three roles; a model then answered that the inventory "lists two key prefixes: 79caa18e44831205 (Lease) and f0b46276439bf9ca (Member)" (run `arun_4d1f985413ba469dadafbc5bc97110c2`).
+Seen again 2026-10-31 on Apache Kafka 4.3.1 in a browser pass: the agent-mode snapshot holds three topics and broker `1` (kind `broker`), so the rail read "Schema snapshot ctx_e6f8 · 4 topics" and two models answered that the inventory lists four topic names, "1", "audit-log", "orders" and "payments" (runs `arun_b8f03ec6b4954c0690bec30d223f6502`, `arun_d1a92a8b8d23445d893334bfc38f5746`).
 
 **Done when:** the rail's count names only the objects of the noun's kind, or names the system tables as such, from the snapshot's object kinds rather than a type-id branch, with a timeline test on a capture that mixes datasources and system tables.
 
@@ -6223,6 +6225,7 @@ Seen 2026-10-30 on LibreDB in a browser pass.
 Seen again 2026-10-30 on Redis 8.10.2 in a browser pass: the picker offered Optimize, Assess and Analyze, which the `rediscli` family does not offer (`docs/providers/redis.md` section 16.5), and Analyze was refused with the same sentence although investigation runs there.
 Seen again 2026-10-30 on etcd v3.7.2 in a browser pass: the picker offered Optimize, Assess and Analyze, which the `etcdctl` family does not offer (`docs/providers/etcd.md` section 15.5), and Optimize was refused with the same sentence although investigation runs there.
 Seen again 2026-10-31 on RabbitMQ 4.3.6 in a browser pass: the picker offered Optimize, Assess and Analyze, which the `rabbitread` family does not offer (`docs/providers/rabbitmq.md` section 17.4), and Analyze was refused with the same sentence although investigation runs there.
+Seen again 2026-10-31 on Apache Kafka 4.3.1 in a browser pass: the picker offered Optimize, Assess and Analyze, which the `kafkaread` family does not offer (`docs/providers/kafka.md` section 15.4), and Analyze was refused with the same sentence although investigation runs there.
 
 **Done when:** the refusal names the workflows the connection's statement language does offer, read from `AGENT_WORKFLOW_VARIANTS` rather than fixed text, the picker marks or hides a workflow that language has no variant for, and a test pins the sentence for `libredbkv`.
 
@@ -6407,6 +6410,7 @@ The rail captions each with "A moment, not a history: this reading says what the
 Two Operate runs answered "At the time of this reading, the engine reported zero active sessions." and "Sessions reading was empty (0 rows): no active sessions were listed at the time of the reading.", although the broker was never asked.
 Seen 2026-10-31 on RabbitMQ 4.3.6 in a browser pass (runs `arun_509c4fc718744d4ba56ffc48abfd3052`, `arun_56ed2b0f38f7417287484281f6b1a775`); not checked on other providers whose panels answer empty by design.
 D39 is the same gap for a slow-query source that could not be read.
+Apache Kafka's agent-mode handle does not have this shape: its overview, storage, session, slow-query, table and index readings answer their reason, which the model reads as a refusal rather than an empty reading (`docs/providers/kafka.md` section 15.3).
 
 **Done when:** a reading the provider answers without asking the engine reaches the model and the rail marked as not read, with the provider's reason, decided from a provider capability rather than a type-id branch, and an operations test pins what the model's tool result says for such a reading.
 
@@ -6417,6 +6421,23 @@ A drafted `publish "hello" to the orders stream` was refused with "A RabbitMQ re
 Seen 2026-10-31 on RabbitMQ 4.3.6 in a browser pass, five times in one run (run `arun_79922a5829284b4ebfcbf93460ad9193`); nothing was sent.
 
 **Done when:** a refused request that is not JSON reads one example, with agent mode's sentence saying only what the read answers after the parser's, and `tests/unit/db/rabbitmq/agent-statement.test.ts` pins the sentence for a request that is not JSON.
+
+### U182. Kafka plan mode is told the inventory holds record columns it does not hold, and can draft no metadata read
+
+Plan mode states `getLabels().statementLanguage` verbatim, and on Kafka that sentence describes the editor's record read request and says "the inventory's other columns (key, value, headers and their encodings) are fields each message comes back with" (`src/lib/db/providers/stream/kafka/index.ts`).
+On an agent-mode profile the inventory plan mode reads holds a topic's offset columns instead, `partition`, `earliest_offset`, `end_offset` and `offset_span` (`KAFKA_AGENT_TOPIC_COLUMNS`, `docs/providers/kafka.md` section 15.3), so the sentence names columns the model cannot see and none it can.
+Asked to draft reads for the widest offset span of `orders` and its leader, plan mode drafted nothing and asked the user for "a metadata read interface that returns every orders partition's offset span and leader broker ID"; asked for the first ten messages of a partition, it drafted `{"topic":"orders","partition":1,"from":"earliest","limit":10}`, which the editor accepted and sent (refused by the broker for the Describe-only principal, read as the super user).
+Seen 2026-10-31 on Apache Kafka 4.3.1 in a browser pass (runs `arun_d2b686690b82426298e950e33750609c`, `arun_5ab2032a2aa54bf4b6ade448aeb22d5e`); nothing was executed.
+
+**Done when:** the sentence plan mode reads on Kafka names only columns its inventory holds, or the inventory says which of its columns the editor's request answers, and a plan-mode test pins the sentence against the agent-profile topic columns.
+
+### U183. A Kafka health reading that proved a broker answered reaches the model with no field saying so
+
+On an agent-mode handle `agentHealth` (`src/lib/db/providers/stream/kafka/agent-surface.ts`) forces one Metadata read, so the reading exists only because a broker answered, yet its artifact holds `activeConnections` null, `databaseSize` set to Studio's reason and `cacheHitRatio` "N/A", and the rail captions it "A moment, not a history: this reading says what the engine reported as it was taken." although no column is the engine's report.
+An Operate run asked whether the broker was up took that reading and answered "Broker availability is not established by this run."
+Seen 2026-10-31 on Apache Kafka 4.3.1 in a browser pass (run `arun_b8f03ec6b4954c0690bec30d223f6502`).
+
+**Done when:** a health reading the provider takes only to prove the engine answered says so in a field the model and the rail read, without a type-id branch, and an operations test pins what the model's tool result says for it.
 
 ## Dependencies
 
@@ -8841,6 +8862,21 @@ Kept so that key-name and value exposure, `INFO`, MCP exposure and the relatives
 Found 2026-10-30 with agent execution on Redis.
 
 **Done when:** the owner rules on whether agent mode may read key names, which stored values it may read on Redis and how they are redacted, and whether `INFO` sections join the table as a named exception, the `rediscli` pack offers the workflows that ruling opens, the owner opens MCP read for Redis, the pack declares its MCP facet (`src/lib/agent/languages/rediscli/mcp.ts`, registered in `AGENT_LANGUAGE_MCP_FACETS`) under the same proof and projection, and `MCP_STATEMENT_READ.redis` is true, with tests; cited in `docs/AGENT.md`.
+
+### B157. Apache Kafka's agent reads are metadata only, and it has no MCP statement tool
+
+Agent mode executes Kafka metadata reads under the `kafkaread` statement language, one JSON request of at most four keys per call naming one of four reads: the topic listing, the broker listing, one topic's partitions and one topic's earliest and end offsets (`docs/providers/kafka.md`, section 15).
+The boundary is the provider's structural closed table: every agent-mode surface reads through a client that holds the Metadata request, sent with topic auto-creation off, and the ListOffsets request at the earliest and latest sentinels alone, so no fetch, produce, topic, config, ACL or group call, offset commit or timestamp lookup can be sent, and no internal topic is ever named.
+A record's key, value, headers and timestamp count as stored values, and a broker's advertised host and port, topic and broker configs, log-directory paths and consumer groups (their ids, members, client ids and hosts, committed offsets and lag) stay off the agent path, so every answer is projected to names, counts and offsets (`ProviderCapabilities.metadataOnly`, `src/lib/db/redaction/metadata-only.ts`); no request filters, counts or looks up by time or by a value, since a record's timestamp can be the producer's own and a lookup by time would bisect stored timestamps.
+Fetch stays off the agent path because the client decompresses a fetch answer whole, with no output cap, in the shared server process (`docs/providers/kafka.md` section 5.4), and neither a row cap nor a client timer bounds that.
+On a handle of either agent profile the editor's read and an object's source are refused, a topic is described by the offset read's columns, consumer groups are counted as withheld with their reason, which the grounding walk carries, and the overview, storage, session, slow-query, table and index readings answer their reason rather than an empty reading.
+So the language offers the investigation and the operations workflow only: data analysis needs stored values, and query optimization and database assessment need a plan and a profile the broker does not compose.
+Its MCP facet is null (`AGENT_LANGUAGE_MCP_FACETS` in `src/lib/agent/languages/mcp.ts`) and `MCP_STATEMENT_READ.kafka` is false, so MCP `run_read_query` refuses a Kafka connection, while `MCP_EXPOSABLE.kafka` stays true for the two metadata tools, which read through the same narrowed client and carry names and counts only.
+Kept so that record exposure, group and config exposure, a bounded fetch and MCP statement read are decisions of their own rather than side effects of agent mode joining.
+
+Found 2026-10-31 when agent mode joined Apache Kafka.
+
+**Done when:** the owner rules on which record values, groups and configs agent mode may read on Kafka and how they are redacted, a fetch on the agent path is bounded by a decompressed-size cap or an isolated process with memory and termination limits, with compressed-bomb tests, the `kafkaread` pack offers the workflows that ruling opens, a per-engine exposure ruling opens MCP statement read for Kafka, the pack declares its MCP facet (`src/lib/agent/languages/kafkaread/mcp.ts`, registered in `AGENT_LANGUAGE_MCP_FACETS`) under the same table and projection, and `MCP_STATEMENT_READ.kafka` is true, with tests that every MCP answer carries no record value; cited in `docs/AGENT.md`.
 
 ## Passkey deferrals (#785)
 
